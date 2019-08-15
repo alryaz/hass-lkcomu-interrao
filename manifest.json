@@ -1,0 +1,8 @@
+{
+    "domain": "mosenergosbyt",
+    "name": "Mosenergosbyt API",
+    "documentation": "https://www.home-assistant.io/components/mosenergosbyt",
+    "dependencies": [],
+    "codeowners": ["@alryaz"],
+    "requirements": ["python-dateutil"]
+}

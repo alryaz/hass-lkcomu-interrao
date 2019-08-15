@@ -8,8 +8,7 @@ git checkout https://github.com/alryaz/hass-mosenergosbyt-sensor.git mosenergosb
 
 Configuration is as follows:
 ```
-sensor:
-  - platform: mosenergosbyt
+mosenergosbyt:
     username: !secret mosenergosbyt_username
     password: !secret mosenergosbyt_password
 ```

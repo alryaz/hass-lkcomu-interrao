@@ -1,0 +1,18 @@
+push_indications:
+  description: Pushes indications with specified values for a meter
+  fields:
+    entity_id:
+      description: 'ID of a meter or account to push indications for'
+      example: 'sensor.mes_meter_1234567'
+    indications:
+      description: 'Dictionary of indications: tariff => value'
+      example: '{t1: 123, t2: 456, t3: 789}'
+calculate_indications:
+  description: Calculates indications with specified values for a meter
+  fields:
+    entity_id:
+      description: 'ID of a meter or account to calculate indications for'
+      example: 'sensor.mes_meter_1234567'
+    indications:
+      description: 'Dictionary of indications: tariff => value'
+      example: '{t1: 123, t2: 456, t3: 789}'

@@ -8,7 +8,8 @@ import homeassistant.helpers.config_validation as cv
 from datetime import timedelta
 from homeassistant.helpers.entity import Entity
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_SCAN_INTERVAL
+from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD,
+                                 CONF_SCAN_INTERVAL)
 from .mosenergosbyt import MESAPI, MESAccount
 
 __version__ = '0.0.1'
@@ -30,7 +31,8 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL): cv.time_period,
 })
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities,
+                               discovery_info=None):
     """Set up the sensor platform"""
     username = config.get(CONF_USERNAME)
     password = config.get(CONF_PASSWORD)
@@ -57,7 +59,9 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                 meter_count += 1
         async_add_entities(entities, update_before_add=True)
         if account_count+meter_count > 0:
-            _LOGGER.info('Discovered ' + str(account_count+meter_count) + ' accounts/meters')
+            _LOGGER.info('Discovered ' +
+                         str(account_count+meter_count) +
+                         ' accounts/meters')
 
             return True
         else:
@@ -84,7 +88,8 @@ class MESAccountSensor(Entity):
             'LastPaymentDate': last_payment['date'],
             'LastPaymentAmount': last_payment['amount'],
             'LastPaymentStatus': last_payment['status'],
-            'RemainingDaysToSendIndications': self._account.GetRemainingDaysToSendIndications(),
+            'RemainingDaysToSendIndications':
+            self._account.GetRemainingDaysToSendIndications(),
         }
 
         self._state = (
@@ -142,7 +147,8 @@ class MESMeterSensor(Entity):
         attributes = {
             'Number': self._meter.GetNumber(),
             'InstallDate': self._meter.GetInstallDate(),
-            'RemainingDaysToSendIndications': self._meter.GetRemainingDaysToSendIndications(),
+            'RemainingDaysToSendIndications':
+            self._meter.GetRemainingDaysToSendIndications(),
         }
         for tariff, value in self._meter.GetSubmittedIndications().items():
             attributes['SubmittedIndicationValue' + tariff.upper()] = value

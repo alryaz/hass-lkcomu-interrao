@@ -2,83 +2,223 @@
 Sensor for Mosenergosbyt cabinet.
 Retrieves values regarding current state of accounts.
 """
+import asyncio
 import logging
-from datetime import timedelta
-from homeassistant.helpers.entity import Entity
-from .mosenergosbyt import MESAPI, MESAccount
+from datetime import datetime, timedelta
+from functools import partial
+from typing import TYPE_CHECKING, Dict, Optional
 
-__version__ = '0.0.1'
+from homeassistant import config_entries
+from homeassistant.const import CONF_USERNAME, CONF_SCAN_INTERVAL
+from homeassistant.exceptions import PlatformNotReady
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.typing import HomeAssistantType, ConfigType
+
+from . import DATA_CONFIG, CONF_ACCOUNTS, DEFAULT_SCAN_INTERVAL, DATA_API_OBJECTS, DATA_ENTITIES, DATA_UPDATERS, \
+    CONF_LOGIN_TIMEOUT, DEFAULT_LOGIN_TIMEOUT
+
+from .mosenergosbyt import MosenergosbytException
+
+if TYPE_CHECKING:
+    from .mosenergosbyt import API, Account, Meter
 
 _LOGGER = logging.getLogger(__name__)
 
-# DEFAULT_PICTURE_ICON = 'data:image/png;base64,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'
+ENTITIES_ACCOUNT = 'account'
+ENTITIES_METER_TARIFF = 'meter_tariff'
 
-async def async_setup_platform(hass, config, async_add_entities,
-                               discovery_info=None):
-    """Set up the sensor platform"""
+
+async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: ConfigType, async_add_entities,
+                          now: Optional[datetime] = None):
+    _LOGGER.debug('Running updater for entry %s at %s' % (entry_id, now or datetime.now()))
+    api: 'API' = hass.data.get(DATA_API_OBJECTS, {}).get(entry_id)
+    if not api:
+        _LOGGER.debug('Updater for entry %s found no API object' % entry_id)
+        return False
+
+    if api.logged_in_at + user_cfg[CONF_LOGIN_TIMEOUT] <= datetime.utcnow():
+        _LOGGER.debug('Refreshing authentication for %s' % entry_id)
+        await api.logout()
+        await api.login()
+
+    username = user_cfg[CONF_USERNAME]
+    use_meter_filter = CONF_ACCOUNTS in user_cfg and user_cfg[CONF_ACCOUNTS]
+
+    accounts = await api.get_accounts()
+
+    created_entities = hass.data.setdefault(DATA_ENTITIES, {}).get(entry_id)
+    if created_entities is None:
+        created_entities = {}
+        hass.data[DATA_ENTITIES][entry_id] = created_entities
+
+    new_accounts = {}
+    new_meters = {}
+
+    tasks = []
+    for account_code, account in accounts.items():
+        _LOGGER.debug('Setting up account %s for username %s' % (account_code, username))
+
+        account_entity = created_entities.get(account_code)
+        if account_entity is None:
+            account_entity = MESAccountSensor(account)
+            new_accounts[account_code] = account_entity
+            tasks.append(account_entity.async_update())
+        else:
+            account_entity.account = account
+            account_entity.async_schedule_update_ha_state(force_refresh=True)
+
+        meters = await account.get_meters()
+
+        if use_meter_filter:
+            account_filter = user_cfg[CONF_ACCOUNTS][account_code]
+
+            if account_filter is not True:
+                meters = {k: v for k, v in meters if k in account_filter}
+
+        if account_entity.meter_entities is None:
+            meter_entities = {}
+            account_entity.meter_entities = meter_entities
+
+        else:
+            meter_entities = account_entity.meter_entities
+
+            for meter_id in meter_entities.keys() - meters.keys():
+                tasks.append(hass.async_create_task(meter_entities[meter_id].async_remove()))
+                del meter_entities[meter_id]
+
+        for meter_id, meter in meters.items():
+            meter_entity = meter_entities.get(meter_id)
+
+            if meter_entity is None:
+                meter_entity = MESMeterSensor(meter)
+                meter_entities[meter_id] = meter_entity
+                new_meters[meter_id] = meter_entity
+                tasks.append(meter_entity.async_update())
+            else:
+                meter_entity.meter = meter
+                meter_entity.async_schedule_update_ha_state(force_refresh=True)
+
+    if tasks:
+        await asyncio.wait(tasks)
+
+    if new_accounts:
+        async_add_entities(new_accounts.values())
+
+    if new_meters:
+        async_add_entities(new_meters.values())
+
+    created_entities.update(new_accounts)
+
+    _LOGGER.debug('Successful update on entry %s' % entry_id)
+    _LOGGER.debug('New meters: %s' % new_meters)
+    _LOGGER.debug('New accounts: %s' % new_accounts)
+
+    return len(new_accounts), len(new_meters)
+
+
+async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entries.ConfigEntry, async_add_devices):
+    user_cfg = {**config_entry.data}
+    username = user_cfg[CONF_USERNAME]
+
+    _LOGGER.debug('Setting up entry for username "%s" from sensors' % username)
+
+    if config_entry.source == config_entries.SOURCE_IMPORT:
+        user_cfg = hass.data[DATA_CONFIG].get(username)
+        scan_interval = user_cfg[CONF_SCAN_INTERVAL]
+    elif CONF_SCAN_INTERVAL in user_cfg:
+        scan_interval = timedelta(seconds=user_cfg[CONF_SCAN_INTERVAL])
+        user_cfg[CONF_LOGIN_TIMEOUT] = timedelta(seconds=user_cfg[CONF_LOGIN_TIMEOUT])
+    else:
+        scan_interval = DEFAULT_SCAN_INTERVAL
+        user_cfg[CONF_LOGIN_TIMEOUT] = DEFAULT_LOGIN_TIMEOUT
+
+    update_call = partial(_entity_updater, hass, config_entry.entry_id, user_cfg, async_add_devices)
 
     try:
-        if discovery_info is None:
-            _LOGGER.wraning('No accounts loaded, check your configuration')
+        result = await update_call()
+
+        if result is False:
             return False
 
-        entities = []
-        account_count = 0
-        meter_count = 0
-        for account_object in discovery_info:
-            entities.append(MESAccountSensor(account_object))
-            account_count += 1
-
-            for meter_object in account_object.GetMetersList():
-                entities.append(MESMeterSensor(meter_object))
-                meter_count += 1
-        async_add_entities(entities, update_before_add=True)
-        if account_count+meter_count > 0:
-            _LOGGER.info('Discovered ' +
-                         str(account_count+meter_count) +
-                         ' accounts/meters')
-
+        if not sum(result):
+            _LOGGER.warning('No accounts or meters discovered, check your configuration')
             return True
-        else:
-            _LOGGER.warning('No accounts discovered, check your configuration')
-            return False
-    except Exception as e:
-        _LOGGER.critical('Cant setup mosenergosbyt logging: ' + str(e))
+
+        hass.data.setdefault(DATA_UPDATERS, {})[config_entry.entry_id] = \
+            async_track_time_interval(hass, update_call, scan_interval)
+
+        new_accounts, new_meters = result
+
+        _LOGGER.info('Set up %d accounts and %d meters, will refresh every %s seconds'
+                     % (new_accounts, new_meters, scan_interval.seconds + scan_interval.days*86400))
+        return True
+
+    except MosenergosbytException as e:
+        raise PlatformNotReady('Error while setting up entry "%s": %s' % (config_entry.entry_id, str(e))) from None
+
+
+async def async_setup_platform(hass: HomeAssistantType, config: ConfigType, async_add_entities,
+                               discovery_info=None):
+    """Set up the sensor platform"""
+    return False
+
+
+class MESEntity(Entity):
+    @property
+    def should_poll(self) -> bool:
+        """Return True if entity has to be polled for state.
+
+        False if entity pushes its state to HA.
+        """
         return False
 
 
-class MESAccountSensor(Entity):
+class MESAccountSensor(MESEntity):
     """The class for this sensor"""
-    def __init__(self, account):
-        self._account = account
+    def __init__(self, account: 'Account'):
+        self._state = None
+        self._unit = None
+        self._attributes = None
+
+        self.account = account
+
+        self.meter_entities: Optional[Dict[str, 'MESMeterSensor']] = None
 
     async def async_update(self):
         """The update method"""
-        last_payment = self._account.GetLastPayment()
+        try:
+            _LOGGER.debug('Updating account %s' % self)
+            last_payment = await self.account.get_last_payment()
+            current_balance = await self.account.get_current_balance()
+            remaining_days = await self.account.get_remaining_days()
+        except MosenergosbytException as e:
+            _LOGGER.debug('Retrieving data from Mosenergosbyt failed: %s' % e)
+            return False
 
         attributes = {
-            'Number': self._account.GetNumber(),
-            'CurrentBalance': self._account.GetCurrentBalance(),
-            'Address': self._account.GetAddress(),
-            'LastPaymentDate': last_payment['date'],
-            'LastPaymentAmount': last_payment['amount'],
-            'LastPaymentStatus': last_payment['status'],
-            'RemainingDaysToSendIndications':
-            self._account.GetRemainingDaysToSendIndications(),
+            'number': self.account.account_code,
+            'balance': current_balance,
+            'address': self.account.address,
+            'last_payment_date': last_payment['date'],
+            'last_payment_amount': last_payment['amount'],
+            'last_payment_status': last_payment['status'],
+            'remaining_days': remaining_days,
         }
 
-        self._state = (
-            '+' if attributes['CurrentBalance'] > 0
-            else '-' if attributes['CurrentBalance'] < 0
-            else ''
-        ) + str(attributes['CurrentBalance'])
         self._unit = 'руб.'
         self._attributes = attributes
+        self._state = (
+            '+' if current_balance > 0
+            else '-' if current_balance < 0
+            else ''
+        ) + str(current_balance)
+        _LOGGER.debug('Update for account %s finished' % self)
 
     @property
     def name(self):
         """Return the name of the sensor"""
-        return 'MES Account ' + self._account.GetNumber()
+        return 'MES Account ' + self.account.account_code
 
     @property
     def state(self):
@@ -108,35 +248,37 @@ class MESAccountSensor(Entity):
     @property
     def unique_id(self):
         """Return the unique ID of the sensor"""
-        return 'ls_' + str(self._account.GetServiceID())
+        return 'ls_' + str(self.account.service_id)
 
 
-class MESMeterSensor(Entity):
+class MESMeterSensor(MESEntity):
     """The class for this sensor"""
-    def __init__(self, meter):
-        self._meter = meter
+    def __init__(self, meter: 'Meter'):
         self._entity_picture = None
+        self._state = None
+        self._attributes = None
+
+        self.meter = meter
 
     async def async_update(self):
         """The update method"""
         attributes = {
-            'Number': self._meter.GetNumber(),
-            'InstallDate': self._meter.GetInstallDate(),
-            'RemainingDaysToSendIndications':
-            self._meter.GetRemainingDaysToSendIndications(),
+            'account_code': self.meter.account_code,
+            'install_date': self.meter.install_date,
+            'remaining_days': self.meter.remaining_days,
         }
-        for tariff, value in self._meter.GetSubmittedIndications().items():
-            attributes['SubmittedIndicationValue' + tariff.upper()] = value
-        for tariff, value in self._meter.GetLastIndications().items():
-            attributes['LastIndicationValue' + tariff.upper()] = value
+        for tariff, value in self.meter.submitted_indications.items():
+            attributes['submitted_value_' + tariff.lower()] = value
+        for tariff, value in self.meter.last_indications.items():
+            attributes['last_value_' + tariff.lower()] = value
 
-        self._state = self._meter.GetCurrentStatus()
+        self._state = self.meter.current_status
         self._attributes = attributes
 
     @property
     def name(self):
         """Return the name of the sensor"""
-        return 'MES Meter ' + self._meter.GetNumber()
+        return 'MES Meter ' + self.meter.meter_id
 
     @property
     def state(self):
@@ -161,4 +303,4 @@ class MESMeterSensor(Entity):
     @property
     def unique_id(self):
         """Return the unique ID of the sensor"""
-        return 'meter_' + str(self._meter.GetNumber())
+        return 'meter_' + str(self.meter.meter_id)

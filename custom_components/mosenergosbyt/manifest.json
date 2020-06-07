@@ -1,8 +1,10 @@
 {
     "domain": "mosenergosbyt",
     "name": "Mosenergosbyt API",
-    "documentation": "https://www.home-assistant.io/components/mosenergosbyt",
+    "documentation": "https://github.com/alryaz/hass-mosenergosbyt-sensor",
+    "issue_tracker": "https://github.com/alryaz/hass-mosenergosbyt-sensor/issues",
     "dependencies": [],
     "codeowners": ["@alryaz"],
-    "requirements": ["python-dateutil"]
+    "requirements": ["python-dateutil"],
+    "config_flow": true
 }

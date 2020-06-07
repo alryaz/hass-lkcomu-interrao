@@ -1,0 +1,10 @@
+{
+  "name": "Mosenergosbyt (Мосэнергосбыт)",
+  "content_in_root": false,
+  "zip_release": false,
+  "render_readme": false,
+  "domains": ["sensor"],
+  "country": "ru",
+  "homeassistant": "0.109.0",
+  "iot_class": "Cloud Polling"
+}

@@ -96,3 +96,20 @@ mosenergosbyt:
   login_timeout:
     hours: 3
 ```
+
+### Custom names for entities
+Currently, naming entities supports basic formatting based on python `str.format(...)` method. Changing
+these parameters (assuming setup without explicit overrides via *Customize* interface or alike) will have effect both on entity IDs and friendly names.  
+Supported replacements are: `code` (more will be added)
+Default `account_name`: `MES Account {code}`  
+Default `meter_name`: `MES Meter {code}`
+```yaml
+mosenergosbyt:
+  username: !secret mosenergosbyt_username
+  password: !secret mosenergosbyt_password
+
+  # Custom account name format
+  account_name: 'My super {code} account' 
+  # Custom meter name format
+  meter_name: 'Meter {code} is electrifying'
+```

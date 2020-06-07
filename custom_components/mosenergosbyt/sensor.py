@@ -16,7 +16,8 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 
 from . import DATA_CONFIG, CONF_ACCOUNTS, DEFAULT_SCAN_INTERVAL, DATA_API_OBJECTS, DATA_ENTITIES, DATA_UPDATERS, \
-    CONF_LOGIN_TIMEOUT, DEFAULT_LOGIN_TIMEOUT
+    CONF_LOGIN_TIMEOUT, DEFAULT_LOGIN_TIMEOUT, DEFAULT_METER_NAME_FORMAT, CONF_METER_NAME, CONF_ACCOUNT_NAME, \
+    DEFAULT_ACCOUNT_NAME_FORMAT
 
 from .mosenergosbyt import MosenergosbytException
 
@@ -45,6 +46,9 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
     username = user_cfg[CONF_USERNAME]
     use_meter_filter = CONF_ACCOUNTS in user_cfg and user_cfg[CONF_ACCOUNTS]
 
+    meter_name_format = user_cfg.get(CONF_METER_NAME, DEFAULT_METER_NAME_FORMAT)
+    account_name_format = user_cfg.get(CONF_ACCOUNT_NAME, DEFAULT_ACCOUNT_NAME_FORMAT)
+
     accounts = await api.get_accounts()
 
     created_entities = hass.data.setdefault(DATA_ENTITIES, {}).get(entry_id)
@@ -61,7 +65,7 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
 
         account_entity = created_entities.get(account_code)
         if account_entity is None:
-            account_entity = MESAccountSensor(account)
+            account_entity = MESAccountSensor(account, account_name_format)
             new_accounts[account_code] = account_entity
             tasks.append(account_entity.async_update())
         else:
@@ -91,7 +95,7 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
             meter_entity = meter_entities.get(meter_id)
 
             if meter_entity is None:
-                meter_entity = MESMeterSensor(meter)
+                meter_entity = MESMeterSensor(meter, meter_name_format)
                 meter_entities[meter_id] = meter_entity
                 new_meters[meter_id] = meter_entity
                 tasks.append(meter_entity.async_update())
@@ -126,9 +130,11 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
     if config_entry.source == config_entries.SOURCE_IMPORT:
         user_cfg = hass.data[DATA_CONFIG].get(username)
         scan_interval = user_cfg[CONF_SCAN_INTERVAL]
+
     elif CONF_SCAN_INTERVAL in user_cfg:
         scan_interval = timedelta(seconds=user_cfg[CONF_SCAN_INTERVAL])
         user_cfg[CONF_LOGIN_TIMEOUT] = timedelta(seconds=user_cfg[CONF_LOGIN_TIMEOUT])
+
     else:
         scan_interval = DEFAULT_SCAN_INTERVAL
         user_cfg[CONF_LOGIN_TIMEOUT] = DEFAULT_LOGIN_TIMEOUT
@@ -176,10 +182,12 @@ class MESEntity(Entity):
 
 class MESAccountSensor(MESEntity):
     """The class for this sensor"""
-    def __init__(self, account: 'Account'):
+    def __init__(self, account: 'Account', name_format: str):
         self._state = None
         self._unit = None
         self._attributes = None
+
+        self._name_format = name_format
 
         self.account = account
 
@@ -197,7 +205,7 @@ class MESAccountSensor(MESEntity):
             return False
 
         attributes = {
-            'number': self.account.account_code,
+            'account_code': self.account.account_code,
             'balance': current_balance,
             'address': self.account.address,
             'last_payment_date': last_payment['date'],
@@ -218,7 +226,7 @@ class MESAccountSensor(MESEntity):
     @property
     def name(self):
         """Return the name of the sensor"""
-        return 'MES Account ' + self.account.account_code
+        return self._name_format.format(code=self.account.account_code)
 
     @property
     def state(self):
@@ -253,10 +261,12 @@ class MESAccountSensor(MESEntity):
 
 class MESMeterSensor(MESEntity):
     """The class for this sensor"""
-    def __init__(self, meter: 'Meter'):
+    def __init__(self, meter: 'Meter', name_format: str):
         self._entity_picture = None
         self._state = None
         self._attributes = None
+
+        self._name_format = name_format
 
         self.meter = meter
 
@@ -278,7 +288,7 @@ class MESMeterSensor(MESEntity):
     @property
     def name(self):
         """Return the name of the sensor"""
-        return 'MES Meter ' + self.meter.meter_id
+        return self._name_format.format(code=self.meter.meter_id)
 
     @property
     def state(self):

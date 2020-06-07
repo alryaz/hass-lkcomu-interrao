@@ -22,6 +22,8 @@ _LOGGER = logging.getLogger(__name__)
 CONF_ACCOUNTS = "accounts"
 CONF_METERS = "meters"
 CONF_LOGIN_TIMEOUT = "login_timeout"
+CONF_METER_NAME = "meter_name"
+CONF_ACCOUNT_NAME = "account_name"
 
 ATTR_INDICATIONS = "indications"
 
@@ -33,6 +35,8 @@ DATA_UPDATERS = DOMAIN + '_updaters'
 
 DEFAULT_SCAN_INTERVAL = timedelta(hours=1)
 DEFAULT_LOGIN_TIMEOUT = timedelta(seconds=60 * 60)
+DEFAULT_METER_NAME_FORMAT = 'MES Meter {code}'
+DEFAULT_ACCOUNT_NAME_FORMAT = 'MES Account {code}'
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -47,6 +51,8 @@ CONFIG_SCHEMA = vol.Schema(
                         vol.All(cv.boolean, True)
                     )}
                 ),
+                vol.Optional(CONF_METER_NAME, default=DEFAULT_METER_NAME_FORMAT): cv.string,
+                vol.Optional(CONF_ACCOUNT_NAME, default=DEFAULT_ACCOUNT_NAME_FORMAT): cv.string,
                 vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL):
                     vol.All(cv.time_period, cv.positive_timedelta),
                 vol.Optional(CONF_LOGIN_TIMEOUT, default=DEFAULT_LOGIN_TIMEOUT):

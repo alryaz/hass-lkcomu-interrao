@@ -2,9 +2,12 @@
 [![GitHub Page](https://img.shields.io/badge/GitHub-alryaz%2Fhass--mosenergosbyt-blue)](https://github.com/alryaz/hass-mosenergosbyt)
 [![Donate Yandex](https://img.shields.io/badge/Donate-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 [![Donate PayPal](https://img.shields.io/badge/Donate-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
-{% set mainline_ver = 'v0.1.0' %}{% set mainline_num_ver = mainline_ver.replace("v", "").replace(".", "") | int %}{%- set features = {
+{% set mainline_ver = 'v0.1.1' %}{% set mainline_num_ver = mainline_ver.replace("v", "").replace(".", "") | int %}{%- set features = {
+    'v0.1.1': 'Name formatting for entities',
     'v0.1.0': 'Multiple accounts support, GUI configuration',
-}-%}{%- set breaking_changes = {} -%}
+}-%}{%- set breaking_changes = {
+    'v0.1.1': [['Account uses `account_code` attribute for its number instead of `number`']]
+} -%}
 {% if installed %}{% if version_installed == "master" %}
 #### ⚠ You are using development version
 This branch may be unstable, as it contains commits not tested beforehand.  
@@ -91,4 +94,21 @@ mosenergosbyt:
   # Session gets updated on the next entities update run 
   login_timeout:
     hours: 3
+```
+
+### Custom names for entities
+Currently, naming entities supports basic formatting based on python `str.format(...)` method. Changing
+these parameters (assuming setup without explicit overrides via *Customize* interface or alike) will have effect both on entity IDs and friendly names.  
+Supported replacements are: `code` (more will be added)
+Default `account_name`: `MES Account {code}`  
+Default `meter_name`: `MES Meter {code}`
+```yaml
+mosenergosbyt:
+  username: !secret mosenergosbyt_username
+  password: !secret mosenergosbyt_password
+
+  # Custom account name format
+  account_name: 'My super {code} account' 
+  # Custom meter name format
+  meter_name: 'Meter {code} is electrifying'
 ```

@@ -12,7 +12,7 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_USERNAME, CONF_SCAN_INTERVAL, ATTR_ENTITY_ID, CONF_ENTITY_ID, STATE_OK, \
-    STATE_LOCKED, STATE_UNKNOWN
+    STATE_LOCKED, STATE_UNKNOWN, ATTR_ATTRIBUTION
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
@@ -301,8 +301,16 @@ async def async_setup_platform(hass: HomeAssistantType, config: ConfigType, asyn
     """Set up the sensor platform"""
     return False
 
+ATTRIBUTION = "Data provided by Mosenergosbyt"
+
 
 class MESEntity(Entity):
+    def __init__(self):
+        self._icon: Optional[str] = None
+        self._state: Optional[Union[float, int, str]] = None
+        self._unit: Optional[str] = None
+        self._attributes: Optional[Dict[str, Union[float, int, str]]] = None
+
     @property
     def should_poll(self) -> bool:
         """Return True if entity has to be polled for state.
@@ -311,16 +319,33 @@ class MESEntity(Entity):
         """
         return False
 
+    @property
+    def state(self):
+        """Return the state of the sensor"""
+        return self._state
+
+    @property
+    def device_state_attributes(self):
+        """Return the attribute(s) of the sensor"""
+        return {**self._attributes, ATTR_ATTRIBUTION: ATTRIBUTION}
+
+    @property
+    def unit_of_measurement(self):
+        """Return the unit of measurement."""
+        return self._unit
+
+    @property
+    def icon(self):
+        return self._icon
+
 
 class MESAccountSensor(MESEntity):
     """The class for this sensor"""
     def __init__(self, account: '_BaseAccount', name_format: str):
-        self._state = None
-        self._unit = None
-        self._attributes = None
+        super().__init__()
 
         self._name_format = name_format
-
+        self._icon = 'mdi:flash-circle'
         self.account: '_BaseAccount' = account
         self.meter_entities: Optional[Dict[str, 'MESMeterSensor']] = None
         self.invoice_entity: Optional['Invoice'] = None
@@ -385,30 +410,10 @@ class MESAccountSensor(MESEntity):
                                         service_name=self.account.service_name,
                                         provider_name=self.account.provider_name)
 
-    @property
-    def state(self):
-        """Return the state of the sensor"""
-        return self._state
-
-    @property
-    def icon(self):
-        """Return the icon of the sensor"""
-        return 'mdi:flash-circle'
-
     # # @TODO: find a better way to integrate pictures (1/2)
     #    @property
     #    def entity_picture(self):
     #        return DEFAULT_PICTURE_ICON
-
-    @property
-    def unit_of_measurement(self):
-        """Return the unit of measurement."""
-        return self._unit
-
-    @property
-    def device_state_attributes(self):
-        """Return the attribute(s) of the sensor"""
-        return self._attributes
 
     @property
     def unique_id(self):
@@ -419,15 +424,10 @@ class MESAccountSensor(MESEntity):
 class MESMeterSensor(MESEntity):
     """The class for this sensor"""
     def __init__(self, meter: '_BaseMeter', name_format: str):
-        self._entity_picture = None
-        self._state = None
-        self._attributes = None
-        self._unit = None
+        super().__init__()
 
         self._icon = 'mdi:counter'
-
         self._name_format = name_format
-
         self.meter = meter
 
     async def async_update(self):
@@ -441,6 +441,8 @@ class MESMeterSensor(MESEntity):
 
         if isinstance(self.meter, MESElectricityMeter):
             attributes['install_date'] = self.meter.install_date.isoformat()
+            attributes['submit_period_start'] = self.meter.period_start_date.isoformat()
+            attributes['submit_period_end'] = self.meter.period_end_date.isoformat()
 
             for i, value in enumerate(self.meter.last_indications, start=1):
                 attributes['last_value_t%d' % i] = value
@@ -464,34 +466,17 @@ class MESMeterSensor(MESEntity):
         return self._name_format.format(code=self.meter.meter_code)
 
     @property
-    def state(self):
-        """Return the state of the sensor"""
-        return self._state
-
-    @property
-    def icon(self):
-        """Return the icon of the sensor"""
-        return self._icon
-
-    @property
-    def device_state_attributes(self):
-        """Return the attribute(s) of the sensor"""
-        return self._attributes
-
-    @property
     def unique_id(self):
         """Return the unique ID of the sensor"""
         return 'meter_' + str(self.meter.meter_code)
 
-    @property
-    def unit_of_measurement(self) -> Optional[str]:
-        return self._unit
-
 
 class MESInvoiceSensor(MESEntity):
     def __init__(self, invoice: 'Invoice', name_format: str):
-        self._state = None
-        self._attributes = None
+        super().__init__()
+
+        self._icon = 'mdi:receipt'
+        self._unit = 'руб.'
         self._name_format = name_format
         self.invoice = invoice
 
@@ -507,6 +492,7 @@ class MESInvoiceSensor(MESEntity):
             'insurance': self.invoice.insurance,
             'benefits': self.invoice.benefits,
             'penalty': self.invoice.penalty,
+            'service': self.invoice.service,
         }
 
         self._state = round(self.invoice.total, 2)
@@ -518,25 +504,6 @@ class MESInvoiceSensor(MESEntity):
         return self._name_format.format(code=self.invoice.account.account_code)
 
     @property
-    def state(self):
-        """Return the state of the sensor"""
-        return self._state
-
-    @property
-    def icon(self):
-        """Return the icon of the sensor"""
-        return 'mdi:receipt'
-
-    @property
-    def device_state_attributes(self):
-        """Return the attribute(s) of the sensor"""
-        return self._attributes
-
-    @property
     def unique_id(self):
         """Return the unique ID of the sensor"""
         return 'invoice_' + str(self.invoice.account.account_code)
-
-    @property
-    def unit_of_measurement(self) -> Optional[str]:
-        return 'руб.'

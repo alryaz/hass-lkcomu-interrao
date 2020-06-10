@@ -3,12 +3,14 @@
 [![Donate Yandex](https://img.shields.io/badge/Donate-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 [![Donate PayPal](https://img.shields.io/badge/Donate-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 {% set mainline_num_ver = version_available.replace("v", "").replace(".", "") | int %}{%- set features = {
+    'v0.2.2': 'Display TO VKGO service costs in invoices; pre-calculated submit dates for MES meters',
     'v0.2.0': 'Major architecture overhaul in preparation for new account types support (MES+TKO available already), invoices sensors, progress made towards integrating submissions',
     'v0.1.1': 'Name formatting for entities',
     'v0.1.0': 'Multiple accounts support, GUI configuration',
 }-%}{%- set breaking_changes = {
     'v0.1.1': [['Account uses `account_code` attribute for its number instead of `number`']]
 } -%}{%- set bugfixes = {
+    'v0.2.2': ['Fixed non-negative value display for MES+TKO accounts'],
     'v0.2.1': ['Fixed reauthentication issue on network failure / server timeout']
 } -%}
 {% if installed %}{% if version_installed == "master" %}

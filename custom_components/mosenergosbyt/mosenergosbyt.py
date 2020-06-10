@@ -205,6 +205,10 @@ class API:
         return True
 
     @property
+    def is_logged_in(self) -> bool:
+        return self._session and self._logged_in_at
+
+    @property
     def logged_in_at(self) -> datetime:
         return self._logged_in_at
 

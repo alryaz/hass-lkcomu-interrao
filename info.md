@@ -8,6 +8,8 @@
     'v0.1.0': 'Multiple accounts support, GUI configuration',
 }-%}{%- set breaking_changes = {
     'v0.1.1': [['Account uses `account_code` attribute for its number instead of `number`']]
+} -%}{%- set bugfixes = {
+    'v0.2.1': ['Fixed reauthentication issue on network failure / server timeout']
 } -%}
 {% if installed %}{% if version_installed == "master" %}
 #### ⚠ You are using development version
@@ -21,6 +23,11 @@ Please, do not use this branch in production environments.
 {{ '- '+change.pop(0) }}{% for changeline in change %}
 {{ '  '+changeline }}{% endfor %}{% endfor %}{% endif %}{% endfor %}
 {% endif %}{% endif %}
+
+{% set print_header = True %}{% for ver, fixes in bugfixes.items() %}{% set ver = ver.replace("v", "").replace(".","") | int %}{% if num_ver < ver %}{% if print_header %}
+##### Bug fixes (`{{ version_installed }}` -> `{{ version_available }}`){% set print_header = False %}{% endif %}{% for fix in fixes %}
+{{ '- ' + fix }}{% endfor %}{% endif %}{% endfor %}
+
 ##### Features{% for ver, text in features.items() %}{% set feature_ver = ver.replace("v", "").replace(".", "") | int %}
 - {% if num_ver < feature_ver %}**{% endif %}`{{ ver }}` {% if num_ver < feature_ver %}NEW** {% endif %}{{ text }}{% endfor %}
 

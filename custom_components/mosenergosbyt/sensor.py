@@ -64,10 +64,16 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
         _LOGGER.debug('Updater for entry %s found no API object' % entry_id)
         return False
 
-    if api.logged_in_at + user_cfg[CONF_LOGIN_TIMEOUT] <= datetime.utcnow():
-        _LOGGER.debug('Refreshing authentication for %s' % entry_id)
-        await api.logout()
-        await api.login()
+    try:
+        if not api.is_logged_in:
+            await api.login()
+        elif api.logged_in_at + user_cfg[CONF_LOGIN_TIMEOUT] <= datetime.utcnow():
+            _LOGGER.debug('Refreshing authentication for %s' % entry_id)
+            await api.logout()
+            await api.login()
+    except MosenergosbytException as e:
+        _LOGGER.error('Authentication error: %s' % e)
+        return False
 
     username = user_cfg[CONF_USERNAME]
     use_meter_filter = CONF_ACCOUNTS in user_cfg and user_cfg[CONF_ACCOUNTS]
@@ -78,8 +84,12 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
     account_name_format = user_cfg.get(CONF_ACCOUNT_NAME, DEFAULT_ACCOUNT_NAME_FORMAT)
     invoice_name_format = user_cfg.get(CONF_INVOICE_NAME, DEFAULT_INVOICE_NAME_FORMAT)
 
-    # Account fetching phase
-    accounts = await api.get_accounts()
+    try:
+        # Account fetching phase
+        accounts = await api.get_accounts()
+    except MosenergosbytException as e:
+        _LOGGER.error('Error fetching accounts: %s' % e)
+        return False
 
     created_entities = hass.data.setdefault(DATA_ENTITIES, {}).get(entry_id)
     if created_entities is None:
@@ -103,38 +113,43 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
             account_entity.account = account
             account_entity.async_schedule_update_ha_state(force_refresh=True)
 
-        # Process meters
-        meters = await account.get_meters()
+        try:
+            # Process meters
+            meters = await account.get_meters()
 
-        if use_meter_filter:
-            account_filter = user_cfg[CONF_ACCOUNTS][account_code]
+            if use_meter_filter:
+                account_filter = user_cfg[CONF_ACCOUNTS][account_code]
 
-            if account_filter is not True:
-                meters = {k: v for k, v in meters if k in account_filter}
+                if account_filter is not True:
+                    meters = {k: v for k, v in meters if k in account_filter}
 
-        if account_entity.meter_entities is None:
-            meter_entities = {}
-            account_entity.meter_entities = meter_entities
-
-        else:
-            meter_entities = account_entity.meter_entities
-
-            for meter_code in meter_entities.keys() - meters.keys():
-                tasks.append(hass.async_create_task(meter_entities[meter_code].async_remove()))
-                del meter_entities[meter_code]
-
-        for meter_code, meter in meters.items():
-            meter_entity = meter_entities.get(meter_code)
-
-            if meter_entity is None:
-                meter_entity = MESMeterSensor(meter, meter_name_format)
-                meter_entities[meter_code] = meter_entity
-                new_meters[meter_code] = meter_entity
-                tasks.append(meter_entity.async_update())
+            if account_entity.meter_entities is None:
+                meter_entities = {}
+                account_entity.meter_entities = meter_entities
 
             else:
-                meter_entity.meter = meter
-                meter_entity.async_schedule_update_ha_state(force_refresh=True)
+                meter_entities = account_entity.meter_entities
+
+                for meter_code in meter_entities.keys() - meters.keys():
+                    tasks.append(hass.async_create_task(meter_entities[meter_code].async_remove()))
+                    del meter_entities[meter_code]
+
+            for meter_code, meter in meters.items():
+                meter_entity = meter_entities.get(meter_code)
+
+                if meter_entity is None:
+                    meter_entity = MESMeterSensor(meter, meter_name_format)
+                    meter_entities[meter_code] = meter_entity
+                    new_meters[meter_code] = meter_entity
+                    tasks.append(meter_entity.async_update())
+
+                else:
+                    meter_entity.meter = meter
+                    meter_entity.async_schedule_update_ha_state(force_refresh=True)
+
+        except MosenergosbytException as e:
+            _LOGGER.error('Error retrieving meters: %s' % e)
+            # we can still continue adding invoices
 
         # Check invoice filter
         if use_invoice_filter:
@@ -146,20 +161,23 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
             if invoice_filter is not True and account_code not in invoice_filter:
                 continue
 
-        # Process last invoice
-        invoice = await account.get_last_invoice()
+        try:
+            # Process last invoice
+            invoice = await account.get_last_invoice()
 
-        if invoice:
-            if account_entity.invoice_entity is None:
-                invoice_entity = MESInvoiceSensor(invoice, invoice_name_format)
-                account_entity.invoice_entity = invoice_entity
-                new_invoices[invoice.invoice_id] = invoice_entity
-                tasks.append(invoice_entity.async_update())
+            if invoice:
+                if account_entity.invoice_entity is None:
+                    invoice_entity = MESInvoiceSensor(invoice, invoice_name_format)
+                    account_entity.invoice_entity = invoice_entity
+                    new_invoices[invoice.invoice_id] = invoice_entity
+                    tasks.append(invoice_entity.async_update())
 
-            else:
-                if account_entity.invoice_entity.invoice.invoice_id != invoice.invoice_id:
-                    account_entity.invoice_entity.invoice = invoice
-                    account_entity.async_schedule_update_ha_state(force_refresh=True)
+                else:
+                    if account_entity.invoice_entity.invoice.invoice_id != invoice.invoice_id:
+                        account_entity.invoice_entity.invoice = invoice
+                        account_entity.async_schedule_update_ha_state(force_refresh=True)
+        except MosenergosbytException as e:
+            _LOGGER.error('Error fetching invoices: %s' % e)
 
     if tasks:
         await asyncio.wait(tasks)
@@ -178,6 +196,7 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
     _LOGGER.debug('Successful update on entry %s' % entry_id)
     _LOGGER.debug('New meters: %s' % new_meters)
     _LOGGER.debug('New accounts: %s' % new_accounts)
+    _LOGGER.debug('New invoices: %s' % new_invoices)
 
     return len(new_accounts), len(new_meters), len(new_invoices)
 

@@ -5,6 +5,6 @@
     "issue_tracker": "https://github.com/alryaz/hass-mosenergosbyt-sensor/issues",
     "dependencies": [],
     "codeowners": ["@alryaz"],
-    "requirements": ["python-dateutil"],
+    "requirements": ["python-dateutil", "cached-property==1.5.1"],
     "config_flow": true
 }

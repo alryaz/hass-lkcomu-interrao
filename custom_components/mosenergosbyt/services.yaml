@@ -5,8 +5,11 @@ push_indications:
       description: 'ID of a meter or account to push indications for'
       example: 'sensor.mes_meter_1234567'
     indications:
-      description: 'Dictionary of indications: tariff => value'
-      example: '{t1: 123, t2: 456, t3: 789}'
+      description: 'List of values (from 1 to 3) for tariffs: [T1, T2, T3]'
+      example: '[123, 456, 789]'
+    ignore_period:
+      description: 'Ignore period boundaries'
+      example: 'false'
 calculate_indications:
   description: Calculates indications with specified values for a meter
   fields:
@@ -14,5 +17,8 @@ calculate_indications:
       description: 'ID of a meter or account to calculate indications for'
       example: 'sensor.mes_meter_1234567'
     indications:
-      description: 'Dictionary of indications: tariff => value'
-      example: '{t1: 123, t2: 456, t3: 789}'
+      description: 'List of values (from 1 to 3) for tariffs: [T1, T2, T3]'
+      example: '[123, 456, 789]'
+    ignore_period:
+      description: 'Ignore period boundaries'
+      example: 'false'

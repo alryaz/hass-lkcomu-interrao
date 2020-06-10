@@ -576,6 +576,7 @@ class MESTKOAccount(_BaseAccount):
                 Invoice.COSTS.CHARGED: invoice['sm_charged'],
                 Invoice.COSTS.INSURANCE: invoice['sm_insurance'],
                 Invoice.COSTS.PENALTY: invoice['sm_penalty'],
+                Invoice.COSTS.SERVICE: invoice['sm_tovkgo'],
                 Invoice.DEDUCTIONS.BENEFITS: invoice['sm_benefits'],
                 Invoice.DEDUCTIONS.PAYMENTS: invoice['sm_payed'],
                 Invoice.TOTAL: invoice['sm_total'],
@@ -620,7 +621,7 @@ class MESTKOAccount(_BaseAccount):
 
     async def get_current_balance(self) -> float:
         response = await self.lk_trash_proxy('AbonentCurrentBalance')
-        return response['data'][0]['sm_balance']
+        return -response['data'][0]['sm_balance']
 
     async def get_remaining_days(self) -> Optional[int]:
         # @TODO: approximate using bill data
@@ -965,6 +966,7 @@ class Invoice:
         CHARGED = 'charged'
         INSURANCE = 'insurance'
         PENALTY = 'penalty'
+        SERVICE = 'service'
 
     class DEDUCTIONS:
         BENEFITS = 'benefits'
@@ -1022,6 +1024,10 @@ class Invoice:
     @cached_property
     def penalty(self) -> float:
         return self._attribute_from_calculations(self.COSTS.PENALTY)
+
+    @cached_property
+    def service(self) -> float:
+        return self._attribute_from_calculations(self.COSTS.SERVICE)
 
 
 class MosenergosbytException(Exception):

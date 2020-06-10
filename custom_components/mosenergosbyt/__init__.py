@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD,
-                                 CONF_SCAN_INTERVAL, CONF_ENTITY_ID, EVENT_HOMEASSISTANT_STOP)
+                                 CONF_SCAN_INTERVAL, EVENT_HOMEASSISTANT_STOP)
 from homeassistant.core import callback
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 
@@ -24,19 +24,20 @@ CONF_METERS = "meters"
 CONF_LOGIN_TIMEOUT = "login_timeout"
 CONF_METER_NAME = "meter_name"
 CONF_ACCOUNT_NAME = "account_name"
-
-ATTR_INDICATIONS = "indications"
+CONF_INVOICES = "invoices"
+CONF_INVOICE_NAME = "invoice_name"
 
 DOMAIN = 'mosenergosbyt'
 DATA_CONFIG = DOMAIN + '_config'
 DATA_API_OBJECTS = DOMAIN + '_api_objects'
-DATA_ENTITIES = DOMAIN + '_created_entities'
+DATA_ENTITIES = DOMAIN + '_entities'
 DATA_UPDATERS = DOMAIN + '_updaters'
 
 DEFAULT_SCAN_INTERVAL = timedelta(hours=1)
 DEFAULT_LOGIN_TIMEOUT = timedelta(seconds=60 * 60)
 DEFAULT_METER_NAME_FORMAT = 'MES Meter {code}'
 DEFAULT_ACCOUNT_NAME_FORMAT = 'MES Account {code}'
+DEFAULT_INVOICE_NAME_FORMAT = 'MES Invoice {code}'
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -51,8 +52,13 @@ CONFIG_SCHEMA = vol.Schema(
                         vol.All(cv.boolean, True)
                     )}
                 ),
+                vol.Optional(CONF_INVOICES, default=True): vol.Any(
+                    cv.boolean,
+                    vol.All(cv.ensure_list, [cv.string])
+                ),
                 vol.Optional(CONF_METER_NAME, default=DEFAULT_METER_NAME_FORMAT): cv.string,
                 vol.Optional(CONF_ACCOUNT_NAME, default=DEFAULT_ACCOUNT_NAME_FORMAT): cv.string,
+                vol.Optional(CONF_INVOICE_NAME, default=DEFAULT_INVOICE_NAME_FORMAT): cv.string,
                 vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL):
                     vol.All(cv.time_period, cv.positive_timedelta),
                 vol.Optional(CONF_LOGIN_TIMEOUT, default=DEFAULT_LOGIN_TIMEOUT):
@@ -62,20 +68,6 @@ CONFIG_SCHEMA = vol.Schema(
     },
     extra=vol.ALLOW_EXTRA,
 )
-
-INDICATIONS_SCHEMA = vol.Schema({str: int})
-
-SERVICE_PUSH_INDICATIONS = 'push_indications'
-SERVICE_PUSH_INDICATIONS_PAYLOAD_SCHEMA = vol.Schema({
-    vol.Required(CONF_ENTITY_ID): cv.entity_id,
-    vol.Required(ATTR_INDICATIONS): INDICATIONS_SCHEMA
-})
-
-SERVICE_CALCULATE_INDICATIONS = 'push_indications'
-SERVICE_CALCULATE_INDICATIONS_PAYLOAD_SCHEMA = vol.Schema({
-    vol.Required(CONF_ENTITY_ID): cv.entity_id,
-    vol.Required(ATTR_INDICATIONS): INDICATIONS_SCHEMA
-})
 
 
 @callback
@@ -89,22 +81,6 @@ def _find_existing_entry(hass: HomeAssistantType, username: str) -> Optional[con
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
     """Set up the Mosenergosbyt component."""
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _close_api_sessions)
-
-    def _push_indications(call):
-        # @TODO: stub
-        return True
-
-    hass.services.async_register(
-        DOMAIN, SERVICE_PUSH_INDICATIONS,
-        _push_indications, SERVICE_PUSH_INDICATIONS_PAYLOAD_SCHEMA)
-
-    def _calculate_indications(call):
-        # @TODO: stub
-        return True
-
-    hass.services.async_register(
-        DOMAIN, SERVICE_PUSH_INDICATIONS,
-        _calculate_indications, SERVICE_CALCULATE_INDICATIONS_PAYLOAD_SCHEMA)
 
     domain_config = config.get(DOMAIN)
     if not domain_config:

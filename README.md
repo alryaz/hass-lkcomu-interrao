@@ -4,8 +4,8 @@
 > Предоставление информации о текущем состоянии ваших аккаунтов в Мосэнергосбыт.
 >
 >[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
->[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
->[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/alryaz/hass-hekr-component/graphs/commit-activity)
+>[![Лицензия](https://img.shields.io/badge/%D0%9B%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+>[![Поддержка](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D1%82%D1%81%D1%8F%3F-%D0%B4%D0%B0-green.svg)](https://github.com/alryaz/hass-mosenergosbyt/graphs/commit-activity)
 >
 >[![Пожертвование Yandex](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 >[![Пожертвование PayPal](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
@@ -33,7 +33,7 @@
 1. Установите последнюю версию нажатием кнопки `Install`
 1. Перезапустите HomeAssistant
 
-_ВНИМАНИЕ:_ Не рекомендуется устанавливать ветку `master`. Она используется исключительно для разработки. 
+_Примечание:_ Не рекомендуется устанавливать ветку `master`. Она используется исключительно для разработки. 
 
 ### Вручную
 Клонируйте репозиторий во временный каталог, затем создайте каталог `custom_components` внутри папки конфигурации
@@ -51,7 +51,7 @@ mv hass-mosenergosbyt/custom_components/mosenergosbyt /mnt/homeassistant/config/
 1. Откройте `Настройки` -> `Интеграции`
 1. Нажмите внизу справа страницы кнопку с плюсом
 1. Введите в поле поиска `Mosenergosbyt` или `Мосэнергосбыт`
-   1.1. Если по какой-то причине интеграция не была найдена, убедитесь, что HomeAssistant был перезапущен после
+   1. Если по какой-то причине интеграция не была найдена, убедитесь, что HomeAssistant был перезапущен после
         установки интеграции.
 1. Выберите первый результат из списка
 1. Введите данные вашей учётной записи для ЛК _"Мосэнергосбыт"_
@@ -61,8 +61,8 @@ mv hass-mosenergosbyt/custom_components/mosenergosbyt /mnt/homeassistant/config/
 
 ### Через `configuration.yaml`
 #### Базовая конфигурация
-Для настройки данной интеграции потребуются данные авторизации в ЛК Мосэнергосбыт.
-`username` - Имя пользователя (телефон / адрес эл. почты)
+Для настройки данной интеграции потребуются данные авторизации в ЛК Мосэнергосбыт.  
+`username` - Имя пользователя (телефон / адрес эл. почты)  
 `password` - Пароль
 ```yaml
 mosenergosbyt:
@@ -88,7 +88,7 @@ mosenergosbyt:
     password: !secret third_mosenergosbyt_password 
 ```
 
-#### Обновление конкретныъ лицевых счетов
+#### Обновление конкретных лицевых счетов
 ##### **Вариант А:** Укажите список лицевых счетов:
 ```yaml
 mosenergosbyt:
@@ -107,12 +107,12 @@ mosenergosbyt:
 ```
 
 #### Изменение интервалов обновления
-Интервал сканирования (`scan_interval`) по умолчанию: 1 час  
-Интервал обновления авторизации (`login_timeout`) по умолчанию: 1 час
+Частота обновления данных (`scan_interval`) по умолчанию: 1 час  
+Частота обновления авторизации (`login_timeout`) по умолчанию: 1 час
 ```yaml
 mosenergosbyt:
   ...
-  # Интервал сканирования
+  # Интервал обновления данных
   scan_interval:
     hours: 6
     seconds: 3
@@ -149,7 +149,8 @@ mosenergosbyt:
 На данный момент, именование объектов происходит используя метод `str.format(...)` языка Python. Изменение следующих
 параметров влияет на ID создаваемых объектов и их имена.
 
-Поддерживаемые замены: `code`  
+Поддерживаемые замены: `code`
+
 Формат аккаунта (`account_name`) по умолчанию: `MES Account {code}`  
 Формат счётчика (`meter_name`) по умолчанию: `MES Meter {code}`  
 Формат квитанции (`invoice_name`) по умолчанию: `MES Invoice {code}`

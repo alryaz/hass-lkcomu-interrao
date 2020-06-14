@@ -3,16 +3,18 @@
 [![Donate Yandex](https://img.shields.io/badge/Donate-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 [![Donate PayPal](https://img.shields.io/badge/Donate-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 {% set mainline_num_ver = version_available.replace("v", "").replace(".", "") | int %}{%- set features = {
+    'v0.2.3': 'Set custom user agent for all requests; better session management',
     'v0.2.2': 'Display TO VKGO service costs in invoices; pre-calculated submit dates for MES meters',
     'v0.2.0': 'Major architecture overhaul in preparation for new account types support (MES+TKO available already), invoices sensors, progress made towards integrating submissions',
     'v0.1.1': 'Name formatting for entities',
     'v0.1.0': 'Multiple accounts support, GUI configuration',
-}-%}{%- set breaking_changes = {
-    'v0.1.1': [['Account uses `account_code` attribute for its number instead of `number`']]
-} -%}{%- set bugfixes = {
+}-%}{%- set breaking_changes = namespace(header="Breaking Changes", changes={
+    'v0.1.1': ['Account uses `account_code` attribute for its number instead of `number`']
+}) -%}{%- set bug_fixes = namespace(header="Bug fixes", changes={
+    'v0.2.3': ['Fixed unnecessary error verbosity', 'Fixed `info.md` duplicate headers'],
     'v0.2.2': ['Fixed non-negative value display for MES+TKO accounts'],
     'v0.2.1': ['Fixed reauthentication issue on network failure / server timeout']
-} -%}
+}) -%}
 {% if installed %}{% if version_installed == "master" %}
 #### ⚠ You are using development version
 This branch may be unstable, as it contains commits not tested beforehand.  
@@ -20,20 +22,19 @@ Please, do not use this branch in production environments.
 {% else %}{% if version_installed == version_available %}
 #### ✔ You are using mainline version{% else %}{% set num_ver = version_installed.replace("v", "").replace(".","") | int %}
 #### 🚨 You are using an outdated release of Hekr component{% if num_ver < 20 %}
-{% set print_header = True %}{% for ver, changes in breaking_changes.items() %}{% set ver = ver.replace("v", "").replace(".","") | int %}{% if num_ver < ver %}{% if print_header %}
-##### Breaking changes (`{{ version_installed }}` -> `{{ version_available }}`){% set print_header = False %}{% endif %}{% for change in changes %}
-{{ '- '+change.pop(0) }}{% for changeline in change %}
-{{ '  '+changeline }}{% endfor %}{% endfor %}{% endif %}{% endfor %}
+{% for ver, changes in breaking_changes.changes.items() %}{% set ver = ver.replace("v", "").replace(".","") | int %}{% if num_ver < ver %}{% if breaking_changes.header %}
+##### {{ breaking_changes.header }} (`{{ version_installed }}` -> `{{ version_available }}`){% set breaking_changes.header = None %}{% endif %}{% for change in changes %}
+{{ '- '+change }}{% endfor %}{% endif %}{% endfor %}
 {% endif %}{% endif %}
 
-{% set print_header = True %}{% for ver, fixes in bugfixes.items() %}{% set ver = ver.replace("v", "").replace(".","") | int %}{% if num_ver < ver %}{% if print_header %}
-##### Bug fixes (`{{ version_installed }}` -> `{{ version_available }}`){% set print_header = False %}{% endif %}{% for fix in fixes %}
+{% for ver, fixes in bug_fixes.changes.items() %}{% set ver = ver.replace("v", "").replace(".","") | int %}{% if num_ver < ver %}{% if bug_fixes.header %}
+##### {{ bug_fixes.header }} (`{{ version_installed }}` -> `{{ version_available }}`){% set bug_fixes.header = None %}{% endif %}{% for fix in fixes %}
 {{ '- ' + fix }}{% endfor %}{% endif %}{% endfor %}
 
 ##### Features{% for ver, text in features.items() %}{% set feature_ver = ver.replace("v", "").replace(".", "") | int %}
 - {% if num_ver < feature_ver %}**{% endif %}`{{ ver }}` {% if num_ver < feature_ver %}NEW** {% endif %}{{ text }}{% endfor %}
 
-Please, report all issues to the [project's GitHub issues](https://github.com/alryaz/hass-hekr-component/issues).
+Please, report all issues to the [project's GitHub issues](https://github.com/alryaz/hass-mosenergosbyt/issues).
 {% endif %}{% else %}
 ## Features{% for ver, text in features.items() %}
 - {{ text }} _(supported since `{{ ver }}`)_{% endfor %}
@@ -43,8 +44,8 @@ Please, report all issues to the [project's GitHub issues](https://github.com/al
 ![Account sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png)
 
 #### Meter sensors
-![MES Meter sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter.png)
 ![MES+TKO Meter sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter_tko.png)
+![MES Meter sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter.png)
 
 #### Invoice sensor
 ![Invoice sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png)
@@ -150,4 +151,23 @@ mosenergosbyt:
 
   # Custom invoice name format
   meter_name: 'Invoice {code} is too much!'
+```
+
+### Override default user agent
+By default, `fake_useragent` ([link](https://pypi.org/project/fake-useragent/)) module attempts to generate a user
+for the whole life span of user configuration. There is also a common failover user agent defined in code.
+Should you be willing to set your own user agent, you are welcome to do it using configuration parameter
+listed below:
+```yaml
+mosenergosbyt:
+  ...
+  # Custom user agent
+  user_agent: 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.2 (KHTML, like Gecko) Chrome/22.0.1216.0 Safari/537.2'
+  
+  # Same user agent written using multiline string
+  user_agent: >
+    Mozilla/5.0 (Windows NT 6.1)
+    AppleWebKit/537.2 (KHTML, like Gecko)
+    Chrome/22.0.1216.0
+    Safari/537.2
 ```

@@ -1,4 +1,5 @@
-[![Логотип Мосэнергосбыт](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/header.png | height=100)](https://my.mosenergosbyt.ru/)
+
+[<img src="https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/header.png" height="100">](https://my.mosenergosbyt.ru/)
 # _Мосэнергосбыт_ для HomeAssistant
 > Предоставление информации о текущем состоянии ваших аккаунтов в Мосэнергосбыт.
 >
@@ -12,15 +13,12 @@
 Данная интеграция предоставляет возможность системе HomeAssistant опрашивать API Мосэнергосбыта.
 
 ## Скриншоты
-#### Лицевые счета
-![Лицевой счёт](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png | height=180)
+(Возможно увеличить, нажав на картинку и перейдя по ссылке)
 
-#### Счётчики
-![Счётчик МЭС+ТКО](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter_tko.png | height=180)
-![Счётчик МЭС](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter.png | height=180)
-
-#### Квитанции
-![Квитанция](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png | height=180)
+[<img alt="Лицевой счёт" src="https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png" height="240">](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png)
+[<img alt="Счётчик МЭС" src="https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter.png" height="240">](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter.png)
+[<img alt="Счётчик МЭС+ТКО" src="https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter_tko.png" height="240">](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter_tko.png)
+[<img alt="Квитанция" src="https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/invoice.png" height="240">](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/invoice.png)
 
 ## Установка
 ### Посредством HACS

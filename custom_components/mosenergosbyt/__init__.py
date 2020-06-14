@@ -1,5 +1,4 @@
 """Mosenergosbyt API"""
-import asyncio
 import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, List
@@ -9,7 +8,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD,
-                                 CONF_SCAN_INTERVAL, EVENT_HOMEASSISTANT_STOP)
+                                 CONF_SCAN_INTERVAL)
 from homeassistant.core import callback
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 
@@ -26,6 +25,7 @@ CONF_METER_NAME = "meter_name"
 CONF_ACCOUNT_NAME = "account_name"
 CONF_INVOICES = "invoices"
 CONF_INVOICE_NAME = "invoice_name"
+CONF_USER_AGENT = "user_agent"
 
 DOMAIN = 'mosenergosbyt'
 DATA_CONFIG = DOMAIN + '_config'
@@ -63,6 +63,7 @@ CONFIG_SCHEMA = vol.Schema(
                     vol.All(cv.time_period, cv.positive_timedelta),
                 vol.Optional(CONF_LOGIN_TIMEOUT, default=DEFAULT_LOGIN_TIMEOUT):
                     vol.All(cv.time_period, cv.positive_timedelta),
+                vol.Optional(CONF_USER_AGENT): cv.string,
             }
         )])
     },
@@ -80,8 +81,6 @@ def _find_existing_entry(hass: HomeAssistantType, username: str) -> Optional[con
 
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
     """Set up the Mosenergosbyt component."""
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _close_api_sessions)
-
     domain_config = config.get(DOMAIN)
     if not domain_config:
         return True
@@ -123,25 +122,6 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
-async def _close_api_sessions(hass: HomeAssistantType, entry_id: Optional[str] = None, *_):
-    if DATA_ENTITIES in hass.data:
-        if entry_id:
-            entities: Optional[List['MESAccountSensor']] = hass.data[DATA_ENTITIES].get(entry_id)
-
-        else:
-            entities: List['MESAccountSensor'] = []
-            for entry_entities in hass.data[DATA_ENTITIES]:
-                entities.extend(entry_entities)
-
-        if entities:
-            tasks = [
-                hass.async_create_task(entity.account.api.logout())
-                for entity in entities
-                if entity.account
-            ]
-            await asyncio.wait(tasks)
-
-
 async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entries.ConfigEntry):
     user_cfg = config_entry.data
     username = user_cfg[CONF_USERNAME]
@@ -159,10 +139,17 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
 
     _LOGGER.debug('Setting up config entry for user "%s"' % username)
 
+    user_agent = user_cfg.get(CONF_USER_AGENT)
+    if user_agent is not None:
+        parts: List[str] = user_agent.split('\n')
+
+        if len(parts) > 1:
+            user_agent = ' '.join([part.strip() for part in parts])
+
     from .mosenergosbyt import API, MosenergosbytException
 
     try:
-        api_object = API(username, user_cfg[CONF_PASSWORD])
+        api_object = API(username, user_cfg[CONF_PASSWORD], user_agent=user_agent)
 
         await api_object.login()
 
@@ -209,8 +196,6 @@ async def async_unload_entry(hass: HomeAssistantType, config_entry: config_entri
 
     if DATA_ENTITIES in hass.data and entry_id in hass.data[DATA_ENTITIES]:
         # Remove references to created entities
-        await _close_api_sessions(hass)
-
         del hass.data[DATA_ENTITIES][entry_id]
         hass.async_create_task(
             hass.config_entries.async_forward_entry_unload(

@@ -5,12 +5,12 @@ import logging
 from _ast import arg
 from datetime import datetime, date
 from enum import IntEnum
+from functools import partial
 from hashlib import md5
 from typing import Optional, List, Dict, Union, Iterable, Any, Type, Set, TypeVar
 from urllib import parse
 
 import aiohttp
-from cached_property import cached_property
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tz
 
@@ -28,6 +28,8 @@ OFFSET_START_TO_END = relativedelta(months=1, seconds=-1)
 
 
 T = TypeVar('T')
+
+
 def all_subclasses(cls: T) -> Set[T]:
     """
     Recursively find all subclasses of a given class.
@@ -37,6 +39,13 @@ def all_subclasses(cls: T) -> Set[T]:
     """
     return set(cls.__subclasses__()).union(
         [s for c in cls.__subclasses__() for s in all_subclasses(c)])
+
+
+DEFAULT_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    'AppleWebKit/537.36 (KHTML, like Gecko)'
+    'Chrome/76.0.3809.100 Safari/537.36'
+)
 
 
 class DateUtil:
@@ -51,7 +60,11 @@ class DateUtil:
 
     @staticmethod
     def month_start(to_datetime: bool = False, timezone: Optional['tz'] = None) -> AnyDate:
-        month_start = DateUtil.moscow_today(True, timezone or MOSCOW_TIMEZONE).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_start = DateUtil.moscow_today(True, timezone or MOSCOW_TIMEZONE).replace(day=1,
+                                                                                       hour=0,
+                                                                                       minute=0,
+                                                                                       second=0,
+                                                                                       microsecond=0)
         return month_start if to_datetime else month_start.date()
 
     @staticmethod
@@ -97,33 +110,43 @@ class Provider(_IntEnum):
 
 class API:
     """ Mosenergosbyt API class """
-    AUTH_URL = "https://my.mosenergosbyt.ru/auth"
-    REQUEST_URL = "https://my.mosenergosbyt.ru/gate_lkcomu"
+    BASE_URL = "https://my.mosenergosbyt.ru"
+    AUTH_URL = BASE_URL + "/auth"
+    REQUEST_URL = BASE_URL + "/gate_lkcomu"
 
-    def __init__(self, username: str, password: str, cache: bool = True, timeout: int = 5):
+    def __init__(self, username: str, password: str, user_agent: Optional[str] = None, timeout: int = 5):
         self.__username = username
         self.__password = password
 
-        self._user_agent = (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-            'AppleWebKit/537.36 (KHTML, like Gecko)'
-            'Chrome/76.0.3809.100 Safari/537.36'
-        )
+        self._user_agent: Optional[str] = user_agent
 
-        self._session: Optional[aiohttp.ClientSession] = None
+        if user_agent is not None:
+            self._user_agent = user_agent.strip()
+
         self._session_id: Optional[str] = None
         self._id_profile = None
         self._token = None
         self._accounts = None
-        self._cookie_jar = None
         self._logged_in_at = None
 
+        self._cookie_jar = aiohttp.CookieJar()
         self._timeout = aiohttp.ClientTimeout(total=timeout)
 
     async def request(self, action, query, post_fields: Optional[Dict] = None, method='POST',
                       get_fields: Optional[Dict] = None, fail_on_reauth: bool = False):
         if get_fields is None:
             get_fields = {}
+
+        if self._user_agent is None:
+            try:
+                # noinspection PyUnresolvedReferences
+                from fake_useragent import UserAgent
+                loop = asyncio.get_event_loop()
+                ua = await loop.run_in_executor(None, partial(UserAgent, fallback=DEFAULT_USER_AGENT))
+                self._user_agent = ua['google chrome']
+
+            except ImportError:
+                self._user_agent = DEFAULT_USER_AGENT
 
         get_fields['action'] = action
         get_fields['query'] = query
@@ -134,20 +157,21 @@ class API:
         request_url = self.REQUEST_URL + '?' + encoded_params
         response_text = None
         try:
-            _LOGGER.debug('-> (%s) %s' % (encoded_params, post_fields))
-            async with self._session.post(request_url, data=post_fields) as response:
-                response_text = await response.text(encoding='utf-8')
-                _LOGGER.debug('<- (%d) %s' % (response.status, response_text))
-                data = json.loads(response_text)
+            async with aiohttp.ClientSession(cookie_jar=self._cookie_jar) as session:
+                _LOGGER.debug('-> (%s) %s' % (encoded_params, post_fields))
+                async with session.post(request_url, data=post_fields) as response:
+                    response_text = await response.text(encoding='utf-8')
+                    _LOGGER.debug('<- (%d) %s' % (response.status, response_text))
+                    data = json.loads(response_text)
 
-        except asyncio.exceptions.TimeoutError as e:
+        except asyncio.exceptions.TimeoutError:
             raise MosenergosbytException('Timeout error (interaction exceeded %d seconds)'
                                          % self._timeout.total) from None
 
         except OSError as e:
             raise MosenergosbytException('Request error') from e
 
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             _LOGGER.debug('Response contents: %s' % response_text)
             raise MosenergosbytException('Response contains invalid JSON') from None
 
@@ -157,6 +181,7 @@ class API:
         elif data['err_code'] == 201:
             if fail_on_reauth:
                 raise MosenergosbytException('Request returned')
+
             await self.login()
             return await self.request(
                 action, query, post_fields,
@@ -173,10 +198,6 @@ class API:
         return ';'.join(self._cookie_jar)
 
     async def login(self):
-        self._session = aiohttp.ClientSession(raise_for_status=True, timeout=self._timeout)
-
-        # await self._session.get(self.AUTH_URL)
-
         data = await self.request('auth', 'login', {
             'login': self.__username,
             'psw': self.__password,
@@ -206,22 +227,19 @@ class API:
 
     @property
     def is_logged_in(self) -> bool:
-        return self._session and self._logged_in_at
+        return self._logged_in_at
 
     @property
     def logged_in_at(self) -> datetime:
         return self._logged_in_at
 
     async def logout(self):
-        if self._session:
-            await self._session.close()
-
-        self._session = None
         self._id_profile = None
         self._token = None
         self._accounts = None
-        self._cookie_jar = None
         self._logged_in_at = None
+
+        self._cookie_jar.clear()
 
         return True
 
@@ -670,23 +688,27 @@ class _BaseMeter:
         return self._account.account_code
 
     # Override in inherent classes
-    @cached_property
+    @property
     def meter_code(self) -> str:
         raise NotImplementedError
 
-    @cached_property
+    @property
     def indications_units(self) -> List[str]:
         raise NotImplementedError
 
-    @cached_property
+    @property
     def indications_names(self) -> List[str]:
         raise NotImplementedError
 
-    @cached_property
+    @property
     def indications_ids(self) -> List[str]:
         raise NotImplementedError
 
-    @cached_property
+    @property
+    def tariff_count(self) -> int:
+        return len(self.indications_ids)
+
+    @property
     def last_indications_dict(self) -> Dict[str, Dict[str, Union[float, str]]]:
         return {a: {'value': b, 'unit': c, 'name': d} for a, b, c, d in zip(
             self.indications_ids,
@@ -695,19 +717,19 @@ class _BaseMeter:
             self.indications_names
         )}
 
-    @cached_property
+    @property
     def last_indications(self) -> List[float]:
         raise NotImplementedError
 
-    @cached_property
+    @property
     def period_start_date(self) -> date:
         raise NotImplementedError
 
-    @cached_property
+    @property
     def period_end_date(self) -> date:
         raise NotImplementedError
 
-    @cached_property
+    @property
     def remaining_submit_days(self) -> Optional[int]:
         """
         Calculate remaining days to submit indications
@@ -715,7 +737,7 @@ class _BaseMeter:
         """
         raise NotImplementedError
 
-    @cached_property
+    @property
     def current_status(self) -> Optional[str]:
         raise NotImplementedError
 
@@ -723,23 +745,23 @@ class _BaseMeter:
 class MESElectricityMeter(_BaseMeter):
     """ Mosenergosbyt meter class """
 
-    @cached_property
+    @property
     def meter_code(self) -> str:
         return self._data['nm_meter_num']
 
-    @cached_property
+    @property
     def indications_units(self) -> List[str]:
         return ['кВт/ч']*self.tariff_count
 
-    @cached_property
+    @property
     def indications_names(self) -> List[str]:
         return [self._data['nm_t%d' % i] for i in range(1, self.tariff_count + 1)]
 
-    @cached_property
+    @property
     def indications_ids(self) -> List[str]:
         return ['t%d' % i for i in range(0, self.tariff_count)]
 
-    @cached_property
+    @property
     def install_date(self) -> date:
         """
         Meter install date accessor.
@@ -747,7 +769,7 @@ class MESElectricityMeter(_BaseMeter):
         """
         return datetime.fromisoformat(self._data['dt_meter_install']).date()
 
-    @cached_property
+    @property
     def model(self) -> str:
         """
         Meter model shortcut accessor.
@@ -755,7 +777,7 @@ class MESElectricityMeter(_BaseMeter):
         """
         return self._data['nm_mrk']
 
-    @cached_property
+    @property
     def tariff_names(self) -> Dict[int, str]:
         return {
             k: v
@@ -763,7 +785,7 @@ class MESElectricityMeter(_BaseMeter):
             if k[:-1] == 'nm_t'
         }
 
-    @cached_property
+    @property
     def tariff_count(self) -> int:
         """
         Tariff count accessor.
@@ -773,7 +795,7 @@ class MESElectricityMeter(_BaseMeter):
         """
         return len(self.tariff_names)
 
-    @cached_property
+    @property
     def submitted_indications(self) -> List[float]:
         """
         Submitted indications accessor.
@@ -782,7 +804,7 @@ class MESElectricityMeter(_BaseMeter):
         """
         return [self._data['vl_t%d_today' % i] for i in range(1, self.tariff_count + 1)]
 
-    @cached_property
+    @property
     def last_indications(self) -> List[float]:
         """
         Last indications accessor.
@@ -807,7 +829,7 @@ class MESElectricityMeter(_BaseMeter):
         """
         return (self.period_end_date - DateUtil.moscow_today(False)).days + 1
 
-    @cached_property
+    @property
     def current_status(self):
         return self._data['nm_result']
 
@@ -886,6 +908,7 @@ class MESElectricityMeter(_BaseMeter):
 
         request_dict['pr_flat_meter'] = self._data['pr_flat_meter']
 
+        self._account: MESAccount
         await self._account.lk_byt_proxy('SaveIndications', request_dict)
 
     # async def get_charge_indications(self, indications: IndicationsType):
@@ -997,35 +1020,35 @@ class Invoice:
     def period(self) -> date:
         return self._period
 
-    @cached_property
+    @property
     def total(self) -> float:
         return self._attribute_from_calculations(self.TOTAL)
 
-    @cached_property
+    @property
     def charged(self) -> float:
         return self._attribute_from_calculations(self.COSTS.CHARGED)
 
-    @cached_property
+    @property
     def initial_balance(self) -> float:
         return self._attribute_from_calculations(self.INITIAL_BALANCE)
 
-    @cached_property
+    @property
     def paid_amount(self) -> float:
         return self._attribute_from_calculations(self.DEDUCTIONS.PAYMENTS)
 
-    @cached_property
+    @property
     def insurance(self) -> float:
         return 0 if self._calculations is None else self._calculations.get(self.COSTS.INSURANCE, 0)
 
-    @cached_property
+    @property
     def benefits(self) -> float:
         return self._attribute_from_calculations(self.DEDUCTIONS.BENEFITS)
 
-    @cached_property
+    @property
     def penalty(self) -> float:
         return self._attribute_from_calculations(self.COSTS.PENALTY)
 
-    @cached_property
+    @property
     def service(self) -> float:
         return self._attribute_from_calculations(self.COSTS.SERVICE)
 

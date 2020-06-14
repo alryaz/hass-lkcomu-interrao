@@ -1,61 +1,80 @@
-# HomeAssistant Mosenergosbyt sensors
-> Provide information about current state of your Mosenergosbyt accounts.
+[![Логотип Мосэнергосбыт](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/header.png | height=100)](https://my.mosenergosbyt.ru/)
+# _Мосэнергосбыт_ для HomeAssistant
+> Предоставление информации о текущем состоянии ваших аккаунтов в Мосэнергосбыт.
 >
 >[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 >[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 >[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/alryaz/hass-hekr-component/graphs/commit-activity)
->[![Donate Yandex](https://img.shields.io/badge/Donate-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
->[![Donate PayPal](https://img.shields.io/badge/Donate-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
+>
+>[![Пожертвование Yandex](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
+>[![Пожертвование PayPal](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 
-This custom component provides Mosenergosbyt API polling capabilities to HomeAssistant.
+Данная интеграция предоставляет возможность системе HomeAssistant опрашивать API Мосэнергосбыта.
 
-## Screenshots
-#### Account sensor
-![Account sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png)
+## Скриншоты
+#### Лицевые счета
+![Лицевой счёт](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png | height=180)
 
-#### Meter sensors
-![MES Meter sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter.png)
-![MES+TKO Meter sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter_tko.png)
+#### Счётчики
+![Счётчик МЭС+ТКО](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter_tko.png | height=180)
+![Счётчик МЭС](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter.png | height=180)
 
-#### Invoice sensor
-![Invoice sensor](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png)
+#### Квитанции
+![Квитанция](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/account.png | height=180)
 
+## Установка
+### Посредством HACS
+1. Откройте HACS (через `Extensions` в боковой панели)
+1. Добавьте новый произвольный репозиторий:
+   1. Выберите `Integration` (`Интеграция`) в качестве типа репозитория
+   1. Введите ссылку на репозиторий: `https://github.com/alryaz/hass-mosenergosbyt`
+   1. Нажмите кнопку `Add` (`Добавить`)
+   1. Дождитесь добавления репозитория (занимает до 10 секунд)
+   1. Теперь вы должны видеть доступную интеграцию `Mosenergosbyt (Мосэнергосбыт)` в списке новых интеграций.
+1. Нажмите кнопку `Install` чтобы увидеть доступные версии
+1. Установите последнюю версию нажатием кнопки `Install`
+1. Перезапустите HomeAssistant
 
-## Installation
-### Via HACS
-1. Open HACS (via `Extensions` in the sidebar)
-1. Add a new custom repository:
-   1. Select `Integration` as custom repository type
-   1. Enter custom repository URL: `https://github.com/alryaz/hass-mosenergosbyt`
-   1. Press `Add` button
-   1. Wait until repository gets added 
-   1. You should now see `Mosenergosbyt (Мосэнергосбыт)` integration available in the list of newly added integrations
-1. Click `Install` button to view available versions
-1. Install latest version by pressing `Install`
+_ВНИМАНИЕ:_ Не рекомендуется устанавливать ветку `master`. Она используется исключительно для разработки. 
 
-_NOTE:_ It is not recommended to install `master` branch. It is intended for development only. 
-
-### Manually
-Clone the repository to a temporary directory, then create a `custom_components` directory inside your HomeAssistant
-config folder (if it doesn't exist yet). Then, move `mosenergosbyt` folder from `custom_components` folder of
-the repository to the `custom_components` folder inside your HomeAssistant configuration.  
-An example (assuming HomeAssistant configuration is available at `/mnt/homeassistant/config`) for Unix-based
-systems is available below:
+### Вручную
+Клонируйте репозиторий во временный каталог, затем создайте каталог `custom_components` внутри папки конфигурации
+вашего HomeAssistant (если она еще не существует). Затем переместите папку `mosenergosbyt` из папки `custom_components` 
+репозитория в папку `custom_components` внутри папки конфигурации HomeAssistant.
+Пример (при условии, что конфигурация HomeAssistant доступна по адресу `/mnt/homeassistant/config`) для Unix-систем:
 ```
-git clone https://github.com/alryaz/hass-mosenergosbyt-sensor.git hass-mosenergosbyt-sensor
+git clone https://github.com/alryaz/hass-mosenergosbyt.git hass-mosenergosbyt
 mkdir -p /mnt/homeassistant/config/custom_components
-mv hass-mosenergosbyt-sensor/custom_components/mosenergosbyt /mnt/homeassistant/config/custom_components
+mv hass-mosenergosbyt/custom_components/mosenergosbyt /mnt/homeassistant/config/custom_components
 ```
 
-## Configuration
-### Basic configuration example
+## Конфигурация
+### Через интерфейс HomeAssistant
+1. Откройте `Настройки` -> `Интеграции`
+1. Нажмите внизу справа страницы кнопку с плюсом
+1. Введите в поле поиска `Mosenergosbyt` или `Мосэнергосбыт`
+   1.1. Если по какой-то причине интеграция не была найдена, убедитесь, что HomeAssistant был перезапущен после
+        установки интеграции.
+1. Выберите первый результат из списка
+1. Введите данные вашей учётной записи для ЛК _"Мосэнергосбыт"_
+1. Нажмите кнопку `Продолжить`
+1. Через несколько секунд начнётся обновление; проверяйте список ваших объектов на наличие
+   объектов, чьи названия начинаются на `MES`.
+
+### Через `configuration.yaml`
+#### Базовая конфигурация
+Для настройки данной интеграции потребуются данные авторизации в ЛК Мосэнергосбыт.
+`username` - Имя пользователя (телефон / адрес эл. почты)
+`password` - Пароль
 ```yaml
 mosenergosbyt:
   username: !secret mosenergosbyt_username
   password: !secret mosenergosbyt_password
 ```
 
-### Multiple users
+#### Несколько пользователей
+Возможно добавить несколько пользователей.
+Для этого вводите данные, используя пример ниже:
 ```yaml
 mosenergosbyt:
     # First account
@@ -71,76 +90,98 @@ mosenergosbyt:
     password: !secret third_mosenergosbyt_password 
 ```
 
-### Update only specific accounts
-**Option A:** Specify list of accounts
+#### Обновление конкретныъ лицевых счетов
+##### **Вариант А:** Укажите список лицевых счетов:
 ```yaml
 mosenergosbyt:
   ...
-  # list of account codes
+  # Список лицевых счетов
   accounts: ['99999-999-99', '88888-888-88']
 ```
-**Option B:** Additionally specify meters to show in HA
+##### **Вариант Б:** Дополнительно отфильтровать счётчики:
 ```yaml
 mosenergosbyt:
   ...
   accounts:
-    # account code -> meter ID
+    # Номер ЛС -> Номер счётчика
     99999-999-99: 123456789
     88888-888-88: ['321987654', '456789123']
 ```
 
-### Change update schedule
-Default `scan_interval`: 1 hour  
-Default `login_timeout`: 1 hour
+#### Изменение интервалов обновления
+Интервал сканирования (`scan_interval`) по умолчанию: 1 час  
+Интервал обновления авторизации (`login_timeout`) по умолчанию: 1 час
 ```yaml
 mosenergosbyt:
   ...
-  # Interval for entity updates
+  # Интервал сканирования
   scan_interval:
     hours: 6
+    seconds: 3
+    minutes: 1
+    ...
 
-  # ... also possible to set via seconds
+  # ... также возможно задать секундами
   scan_interval: 21600
 
-  # Invalidate session after specified time period has passed
-  # Session gets updated on the next entities update run 
+  # Сбрасывать сессию после определённого времени
+  # Сессия обновляется при следующем обновлении ЛС
   login_timeout:
     hours: 3
 ```
 
-### Configure invoices
-Invoice entities are updated during the main update schedule. They display the total amount
-requested by the operating company. **They don't reflect whether your payment has already
-been processed!** They are designed to serve as attribute holders for pricing decomposition.
+#### Настройка квитанций
+Квитанции обновляются вместе с остальными объектами. Они отображают последние квитанции, выставленые
+компанией. **То, что уже было уплачено, не отображается!** Существование данных объектов обусловлено
+использованием их в качестве держателей информации для получения разброса цен.
 ```yaml
 mosenergosbyt:
   ...
-  # Enable invoices for every account (default behaviour)
+  # Включить квитанции для всех лицевых счетов
   invoices: true
 
-  # Enable invoices for certain accounts
+  # Включить квитанции для конкретных лицевых счетов
   invoices: ['1131241222']
 
-  # Disable invoices for every account
+  # Отключить квитанции для всех счетов
   invoices: false
 ```
 
-### Custom names for entities
-Currently, naming entities supports basic formatting based on python `str.format(...)` method. Changing
-these parameters (assuming setup without explicit overrides via *Customize* interface or alike) will have effect both on entity IDs and friendly names.  
-Supported replacements are: `code` (more will be added)
-Default `account_name`: `MES Account {code}`  
-Default `meter_name`: `MES Meter {code}`
-Default: `invoice_name`: `MES Invoice {code}`
+#### Настройка имён объектов
+На данный момент, именование объектов происходит используя метод `str.format(...)` языка Python. Изменение следующих
+параметров влияет на ID создаваемых объектов и их имена.
+
+Поддерживаемые замены: `code`  
+Формат аккаунта (`account_name`) по умолчанию: `MES Account {code}`  
+Формат счётчика (`meter_name`) по умолчанию: `MES Meter {code}`  
+Формат квитанции (`invoice_name`) по умолчанию: `MES Invoice {code}`
 ```yaml
 mosenergosbyt:
   ...
-  # Custom account name format
-  account_name: 'My super {code} account' 
+  # Произвольный формат для лицевых счетов
+  account_name: 'Мой супер {code} лицевой счёт' 
 
-  # Custom meter name format
-  meter_name: 'Meter {code} is electrifying'
+  # Произвольный формат для счётчиков
+  meter_name: 'Счётчик {code} жахает'
 
-  # Custom invoice name format
-  meter_name: 'Invoice {code} is too much!'
+  # Произвольный формат для квитанций
+  meter_name: 'За {code} платим много!'
+```
+
+#### Использование другого "браузера" (UA) в запросах
+По умолчанию модуль `fake_useragent` ([ссылка](https://pypi.org/project/fake-useragent/)) пробует создать
+уникальный заголовок `User-Agent` для использования на протяжении всего существования объекта работы с API.
+Если желаемо указание статичного заголовка, это возможно используя пример ниже:
+```yaml
+mosenergosbyt:
+  ...
+  # Произвольный User-Agent
+  user_agent: 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.2 (KHTML, like Gecko) Chrome/22.0.1216.0 Safari/537.2'
+  
+  # Тот же самый User-Agent, но в несколько строк
+  user_agent: >
+    Mozilla/5.0 (Windows NT 6.1)
+    AppleWebKit/537.2 (KHTML, like Gecko)
+    Chrome/22.0.1216.0
+    Safari/537.2
 ```

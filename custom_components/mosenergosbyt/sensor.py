@@ -67,10 +67,12 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
     try:
         if not api.is_logged_in:
             await api.login()
+
         elif api.logged_in_at + user_cfg[CONF_LOGIN_TIMEOUT] <= datetime.utcnow():
             _LOGGER.debug('Refreshing authentication for %s' % entry_id)
             await api.logout()
             await api.login()
+
     except MosenergosbytException as e:
         _LOGGER.error('Authentication error: %s' % e)
         return False
@@ -212,7 +214,7 @@ async def async_register_services(hass: HomeAssistantType):
         for account_sensors in entry_accounts.values():
             for account_sensor in account_sensors.values():
                 for meter in account_sensor.meter_entities.values():
-                    if meter.entity_id == entity_id:
+                    if meter.entity_id == entity_id and hasattr(meter.meter, 'push_indications'):
                         indications = call.data[ATTR_INDICATIONS]
                         if len(indications) != meter.meter.tariff_count:
                             _LOGGER.error('Provided indication count (%d) does not match meter tariff count (%d)'
@@ -371,7 +373,7 @@ class MESAccountSensor(MESEntity):
 
             except MosenergosbytException as e:
                 message = 'Retrieving data from Mosenergosbyt failed: %s' % e
-                if True or _LOGGER.level == logging.DEBUG:
+                if _LOGGER.level == logging.DEBUG:
                     _LOGGER.exception(message)
                 else:
                     _LOGGER.error(message)

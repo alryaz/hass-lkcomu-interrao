@@ -10,11 +10,12 @@ push_indications:
     ignore_period:
       description: 'Ignore period boundaries'
       example: 'false'
+
 calculate_indications:
-  description: Calculates indications with specified values for a meter
+  description: Подсчитать начисления по передаваемым показаниям
   fields:
     entity_id:
-      description: 'ID of a meter or account to calculate indications for'
+      description: 'Идентификатор объекта счётчика, для которого подсчитывать показания'
       example: 'sensor.mes_meter_1234567'
     indications:
       description: 'List of values (from 1 to 3) for tariffs: [T1, T2, T3]'

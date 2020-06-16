@@ -1,4 +1,3 @@
-
 [<img src="https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/header.png" height="100">](https://my.mosenergosbyt.ru/)
 # _Мосэнергосбыт_ для HomeAssistant
 > Предоставление информации о текущем состоянии ваших аккаунтов в Мосэнергосбыт.
@@ -165,6 +164,50 @@ mosenergosbyt:
 
   # Произвольный формат для квитанций
   meter_name: 'За {code} платим много!'
+```
+
+#### Подсчёт начислений при передаче показаний
+Компонент позволяет запускать службу `mosenergosbyt.calculate_indications` с параметрами:
+- `entity_id`: Идентификатор сенсора счётчика
+- `indications`: Список значений по показаниям
+которая в случае успешного вызова отсылает событие `mosenergosbyt_calculation_result`, содержащее следующие данные:
+- `entity_id`: Идентификатор сенсора счётчика
+- `indications`: Список значений по показаниям
+- `period`: Период (как правило начало месяца в Московском часовом поясе)
+- `charged`: Числовое значение начисления (с десятичными цифрами)
+- `indications`: Список значений по показаниям
+- `indications_dict`: Именованый массив в фомате `t<число>` -> `<показание>`
+
+Данная служба автоматически определяет попытку передать показания за пределами указанного срока и с недостаточным
+количеством показаний. Проверку периода возможно отключить, **ОДНАКО НАСТОЯТЕЛЬНО НЕ РЕКОМЕНДУЕТСЯ** в связи
+с возможными отрицательными последствиями.
+
+Ниже указан пример вызова службы:
+```yaml
+service: mosenergosbyt.calculate_indications
+data_template:
+  entity_id: sensor.mes_meter_123456789
+  indications:
+    - "{{ states('sensor.monthly_consumption_peak') + state_attr('sensor.mes_meter_12345678', 'last_value_t1') }}"
+    - "{{ states('sensor.monthly_consumption_offpeak') + state_attr('sensor.mes_meter_12345678', 'last_value_t2') }}"
+    - "{{ states('sensor.monthly_consumption_halfpeak') + state_attr('sensor.mes_meter_12345678', 'last_value_t3') }}"
+```
+
+Ниже указан пример автоматизации, использующий данную возможность:
+```yaml
+automation:
+  - id: respond_to_calculation
+    trigger:
+      platform: event
+      event_type: calculation_result
+    action:
+      service: persistent_notification.create
+      data_template:
+        title: "Результаты подсчётов"
+        message: >
+          Для счётчика {{ state_attr(trigger.event.data['entity_id'], 'meter_code') }}
+          выполнен подсчёт за период {{ trigger.event.data['period'] }};
+          будет начислено {{ trigger.event.data['charged'] }}
 ```
 
 #### Использование другого "браузера" (UA) в запросах

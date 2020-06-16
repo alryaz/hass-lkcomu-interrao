@@ -16,7 +16,7 @@ from dateutil.tz import tz
 
 _LOGGER = logging.getLogger(__name__)
 
-IndicationsType = Union[Iterable[Optional[int]], Dict[int, int]]
+IndicationsType = Iterable[Union[int, float]]
 PaymentsList = List[Dict[str, Union[str, int, datetime]]]
 InvoiceData = Dict[str, Any]
 InvoiceList = List[InvoiceData]
@@ -108,6 +108,20 @@ class Provider(_IntEnum):
     MES_TKO = 6
 
 
+class ResponseCodes(IntEnum):
+    ERROR_NO_BUSINESS = 0
+    SHOW_CAPTCHA = 114
+    SHOW_CAPTCHA_PASSWORD_RESET = 127
+    EMAIL_NOT_CONFIRMED = 128
+    PHONE_NOT_CONFIRMED = 129
+    PASSWORD_CHANGE_REQUIRED = 166
+    EXTRA_CODE_REQUIRED = 192
+    UNAUTHORIZATION = 201
+    RESPONSE_RESULT = 1000
+    SERVICE_NOT_FOUND = 6011
+    BILLING_UNAVAILABLE = 6013
+
+
 class API:
     """ Mosenergosbyt API class """
     BASE_URL = "https://my.mosenergosbyt.ru"
@@ -178,7 +192,7 @@ class API:
         if data['success'] is not None and data['success']:
             return data
 
-        elif data['err_code'] == 201:
+        elif data['err_code'] == ResponseCodes.UNAUTHORIZATION:
             if fail_on_reauth:
                 raise MosenergosbytException('Request returned')
 
@@ -188,8 +202,8 @@ class API:
                 method, get_fields,
                 fail_on_reauth=True
             )
-        else:
-            raise MosenergosbytException('Unknown error')
+
+        raise MosenergosbytException('Unknown error')
 
     async def request_sql(self, query, post_fields: Optional[Dict] = None):
         return await self.request('sql', query, post_fields, 'POST')
@@ -319,6 +333,10 @@ class _BaseAccount:
         return self._account_data['nm_provider']
 
     @property
+    def provider_type(self) -> Provider:
+        return Provider(self._account_data['kd_provider'])
+
+    @property
     def service_type(self) -> ServiceType:
         return ServiceType(self._account_data['kd_service_type'])
 
@@ -348,9 +366,32 @@ class _BaseAccount:
         )
 
     # Shortcut methods
+    async def get_contact_phone(self):
+        contact_phone_key = 'nn_contact_phone'
+        contact_phone = self._account_data.get(contact_phone_key)
+
+        if 'nn_contact_phone' not in self._account_data:
+            result = await self.api.request_sql('GetContactPhone', {'kd_provider': self._account_data['kd_provider']})
+            contact_phone = result['data'][0][contact_phone_key]
+            self._account_data[contact_phone_key] = contact_phone
+
+        return contact_phone
+
     async def get_indications(self, start: AnyDate, end: Optional[AnyDate] = None) -> IndicationsList:
         start, end = DateUtil.convert_date_arguments(start, end, _to=datetime, _none_now=True)
         return await self._get_indications(start, end)
+
+    async def get_indications_is_float(self) -> Optional[bool]:
+        if '_pr_float' in self._account_data:
+            return self._account_data['_pr_float']
+
+        result = await self.api.request_sql('IndicationIsFloat', {'id_service': self._account_data['id_service']})
+        pr_float = result.get('data', [{}])[0].get('pr_float')
+
+        if pr_float is not None:
+            self._account_data['_pr_float'] = pr_float
+
+        return pr_float
 
     async def get_last_indications(self) -> Optional[Dict]:
         now = DateUtil.moscow_today(True)
@@ -759,7 +800,7 @@ class MESElectricityMeter(_BaseMeter):
 
     @property
     def indications_ids(self) -> List[str]:
-        return ['t%d' % i for i in range(0, self.tariff_count)]
+        return ['t%d' % i for i in range(1, self.tariff_count + 1)]
 
     @property
     def install_date(self) -> date:
@@ -834,25 +875,7 @@ class MESElectricityMeter(_BaseMeter):
         return self._data['nm_result']
 
     # Submission algorithms
-    @staticmethod
-    def _get_indications_vl_params(indications: IndicationsType) -> Dict[str, int]:
-        """
-        Converts indications input to format suitable for sending over HTTP.
-        :param indications: Indications data
-        :return: Converted indications
-        """
-        if isinstance(indications, dict):
-            iterator = indications.values()
-        else:
-            iterator = enumerate(indications, start=1)
-
-        return {
-            'vl_t%d' % tariff_id: indication
-            for tariff_id, indication in iterator
-            if indication is not None
-        }
-
-    def check_submission_date(self, submission_date: Optional[date] = None) -> None:
+    def _check_submission_date(self, submission_date: Optional[date] = None) -> None:
         """
         Checks whether submission date is within bounds.
         :param submission_date: (optional) Submission date object (checks today in Moscow TZ by default)
@@ -867,12 +890,9 @@ class MESElectricityMeter(_BaseMeter):
             raise MosenergosbytException('Out of period (from %s to %s) submission date (%s)'
                                          % (self.period_start_date, self.period_end_date, submission_date))
 
-    def check_indication_params(self, params: Dict[str, int]) -> None:
+    def _check_indication_params(self, params: Dict[str, int]) -> None:
         """
         Checks indication parameters.
-        This must be a new array acquired via `_get_indications_vl_params` (without any extra keys but indications
-        added to it). Otherwise, the method will raise an `IndicationsCountException` on possibly correct data.
-
         :param params: Indications (ex. {'vl_t1': 123})
         :raises IndicationsCountException: There is a number of indications differing from meter tariff count
         :raises IndicationsThresholdException: New indications are below submitted / previous indications threshold
@@ -884,9 +904,31 @@ class MESElectricityMeter(_BaseMeter):
         for parameter, new_value in params.items():
             for suffix, name in [('_last_ind', 'previous'), ('_today', 'submitted')]:
                 old_value = self._data.get(parameter + suffix, new_value)
-                if new_value < old_value:
+                if old_value is not None and new_value < old_value:
                     raise IndicationsThresholdException('Indication T%s (%d) is lower than %s indication (%d)'
                                                         % (parameter[-1], new_value, name, old_value))
+
+    async def _prepare_indications_request(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                           ignore_indications_check: bool = False):
+        if not ignore_period_check:
+            self._check_submission_date()
+
+        converter = float if await self._account.get_indications_is_float() else int
+
+        request_dict = {
+            'vl_%s' % tariff_id: converter(indication)
+            for tariff_id, indication in zip(self.indications_ids, indications)
+            if indication is not None
+        }
+
+        if not ignore_indications_check:
+            self._check_indication_params(request_dict)
+
+        request_dict['pr_flat_meter'] = self._data['pr_flat_meter']
+
+        request_dict['nn_phone'] = await self._account.get_contact_phone()
+
+        return request_dict
 
     async def save_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
                                ignore_indications_check: bool = False) -> None:
@@ -898,24 +940,41 @@ class MESElectricityMeter(_BaseMeter):
         :param ignore_period_check: Ignore out-of-period safeguard
         :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
         """
-        if not ignore_period_check:
-            self.check_submission_date()
-
-        request_dict = self._get_indications_vl_params(indications)
-
-        if not ignore_indications_check:
-            self.check_indication_params(request_dict)
-
-        request_dict['pr_flat_meter'] = self._data['pr_flat_meter']
+        request_dict = await self._prepare_indications_request(indications,
+                                                               ignore_period_check,
+                                                               ignore_indications_check)
 
         self._account: MESAccount
         await self._account.lk_byt_proxy('SaveIndications', request_dict)
 
-    # async def get_charge_indications(self, indications: IndicationsType):
-    #     request_dict = self._get_indications_vl_params(indications)
-    #     request_dict['pr_flat_meter'] = self._data['pr_flat_meter']
-    #
-    #     response = await self._account.lk_byt_proxy('CalcCharge', request_dict)
+    async def get_charge_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                     ignore_indications_check: bool = False) -> 'ChargeCalculation':
+        """
+        Calculate indications charges with Mosenergosbyt.
+        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
+        submissions. Override these safeguards at your own risk.
+        :param indications: Indications list / dictionary
+        :param ignore_period_check: Ignore out-of-period safeguard
+        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
+        :return: Charge calculation object
+        """
+        request_dict = await self._prepare_indications_request(indications,
+                                                               ignore_period_check,
+                                                               ignore_indications_check)
+
+        self._account: MESAccount
+        result = await self._account.lk_byt_proxy('CalcCharge', request_dict)
+
+        result_data = result.get('data')
+        if result_data:
+            data = result_data[0]
+            if data['pr_correct'] == 1:
+                return ChargeCalculation(self, indications, data['sm_charge'], data['nm_result'])
+
+            if data['kd_result'] == 2:
+                raise IndicationsCountException('Sent invalid indications count')
+
+        raise MosenergosbytException('Unknown error')
 
 
 class TKOIndicationMeter(_BaseMeter):
@@ -971,6 +1030,41 @@ class TKOIndicationMeter(_BaseMeter):
     @property
     def total_cost(self) -> float:
         return self._data['total']
+
+
+class ChargeCalculation:
+    def __init__(self, meter: '_BaseMeter', indications: IndicationsType, charged: float, comment: str,
+                 period: Optional[date] = None):
+        self._period: date = DateUtil.month_start() if period is None else period
+        self._meter = meter
+        self._indications = dict(zip(meter.indications_ids, indications))
+
+        self.charged = float(charged)
+        self.comment = comment
+
+    def __str__(self):
+        return self.comment
+
+    def __int__(self):
+        return int(self.charged)
+
+    def __float__(self):
+        return self.charged
+
+    def __repr__(self):
+        return '<' + self._meter.__class__.__name__ + '.' + self.__class__.__name__ + '[' + str(self.charged) + ']>'
+
+    @property
+    def period(self) -> date:
+        return self._period
+
+    @property
+    def meter(self) -> '_BaseMeter':
+        return self._meter
+
+    @property
+    def indications(self) -> Dict[str, float]:
+        return self._indications.copy()
 
 
 class Invoice:

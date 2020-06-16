@@ -184,7 +184,8 @@ async def async_unload_entry(hass: HomeAssistantType, config_entry: config_entri
 
     if DATA_UPDATERS in hass.data and entry_id in hass.data[DATA_UPDATERS]:
         # Remove API objects
-        hass.data[DATA_UPDATERS].pop(entry_id)
+        cancel, updater = hass.data[DATA_UPDATERS].pop(entry_id)
+        cancel()
         if not hass.data[DATA_UPDATERS]:
             del hass.data[DATA_UPDATERS]
 

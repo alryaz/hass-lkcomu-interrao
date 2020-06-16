@@ -1,25 +1,37 @@
 push_indications:
-  description: Pushes indications with specified values for a meter
+  description: 'Передать показания в личный кабинет'
   fields:
     entity_id:
-      description: 'ID of a meter or account to push indications for'
+      description: 'Идентификатор объекта целевого счётчика (не совместимо с `meter_code`)'
       example: 'sensor.mes_meter_1234567'
+    meter_code:
+      description: 'Номер целевого счётчика (не совместимо с `entity_id`)'
+      example: '1234567'
     indications:
-      description: 'List of values (from 1 to 3) for tariffs: [T1, T2, T3]'
+      description: 'Список показаний (от 1 до 3) для тарифов: [T1, T2, T3]'
       example: '[123, 456, 789]'
+    incremental:
+      description: 'Сложить известные переданные показания счётчика с передаваемыми'
+      example: 'false'
     ignore_period:
-      description: 'Ignore period boundaries'
+      description: 'Игнорировать ограничения по периоду'
       example: 'false'
 
 calculate_indications:
-  description: Подсчитать начисления по передаваемым показаниям
+  description: 'Подсчитать начисления по передаваемым показаниям'
   fields:
     entity_id:
-      description: 'Идентификатор объекта счётчика, для которого подсчитывать показания'
+      description: 'Идентификатор объекта целевого счётчика (не совместимо с `meter_code`)'
       example: 'sensor.mes_meter_1234567'
+    meter_code:
+      description: 'Номер целевого счётчика (не совместимо с `entity_id`)'
+      example: '1234567'
     indications:
-      description: 'List of values (from 1 to 3) for tariffs: [T1, T2, T3]'
+      description: 'Список показаний (от 1 до 3) для тарифов: [T1, T2, T3]'
       example: '[123, 456, 789]'
+    incremental:
+      description: 'Сложить известные переданные показания счётчика с передаваемыми'
+      example: 'false'
     ignore_period:
-      description: 'Ignore period boundaries'
+      description: 'Игнорировать ограничения по периоду'
       example: 'false'

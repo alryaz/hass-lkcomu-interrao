@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_USERNAME, CONF_SCAN_INTERVAL, ATTR_ENTITY_ID, CONF_ENTITY_ID, STATE_OK, \
+from homeassistant.const import CONF_USERNAME, CONF_SCAN_INTERVAL, ATTR_ENTITY_ID, STATE_OK, \
     STATE_LOCKED, STATE_UNKNOWN, ATTR_ATTRIBUTION
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity import Entity
@@ -25,6 +25,7 @@ from .mosenergosbyt import MosenergosbytException, ServiceType, MESElectricityMe
     _BaseAccount, Invoice, ChargeCalculation, IndicationsCountException
 
 if TYPE_CHECKING:
+    from types import MappingProxyType
     from .mosenergosbyt import API
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,7 +33,9 @@ _LOGGER = logging.getLogger(__name__)
 ENTITIES_ACCOUNT = 'account'
 ENTITIES_METER_TARIFF = 'meter_tariff'
 
+ATTR_METER_CODE = "meter_code"
 ATTR_INDICATIONS = "indications"
+ATTR_INCREMENTAL = "incremental"
 ATTR_IGNORE_PERIOD = "ignore_period"
 
 DEFAULT_MAX_INDICATIONS = 3
@@ -41,21 +44,34 @@ INDICATIONS_SCHEMA = vol.Any(
     vol.All([cv.positive_int], vol.Length(1, DEFAULT_MAX_INDICATIONS))
 )
 
+METER_IDENTIFIERS = {
+    vol.Exclusive(ATTR_ENTITY_ID, 'meter_id'): cv.entity_id,
+    vol.Exclusive(ATTR_METER_CODE, 'meter_id'): cv.string,
+}
+SCHEMA_METER_IDENTIFIERS = vol.Schema(METER_IDENTIFIERS, required=True, extra=vol.ALLOW_EXTRA)
+
 SERVICE_PUSH_INDICATIONS = 'push_indications'
-SERVICE_PUSH_INDICATIONS_PAYLOAD_SCHEMA = vol.Schema({
-    vol.Required(CONF_ENTITY_ID): cv.entity_id,
-    vol.Required(ATTR_INDICATIONS): INDICATIONS_SCHEMA,
-    vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
-})
+SERVICE_PUSH_INDICATIONS_PAYLOAD_SCHEMA = vol.All(
+    SCHEMA_METER_IDENTIFIERS, {
+        **METER_IDENTIFIERS,
+        vol.Required(ATTR_INDICATIONS): INDICATIONS_SCHEMA,
+        vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
+        vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
+    }
+)
 
 SERVICE_CALCULATE_INDICATIONS = 'calculate_indications'
-SERVICE_CALCULATE_INDICATIONS_PAYLOAD_SCHEMA = vol.Schema({
-    vol.Required(CONF_ENTITY_ID): cv.entity_id,
-    vol.Required(ATTR_INDICATIONS): INDICATIONS_SCHEMA,
-    vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
-})
+SERVICE_CALCULATE_INDICATIONS_PAYLOAD_SCHEMA = vol.All(
+    SCHEMA_METER_IDENTIFIERS, {
+        **METER_IDENTIFIERS,
+        vol.Required(ATTR_INDICATIONS): INDICATIONS_SCHEMA,
+        vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
+        vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
+    }
+)
 
 EVENT_CALCULATION_RESULT = DOMAIN + "_calculation_result"
+EVENT_PUSH_RESULT = DOMAIN + "_push_result"
 
 
 async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: ConfigType, async_add_entities,
@@ -209,55 +225,105 @@ async def async_register_services(hass: HomeAssistantType):
     if hass.services.has_service(DOMAIN, SERVICE_PUSH_INDICATIONS):
         return
 
-    def _find_meter_entity(entity_id: str) -> Optional['MESMeterSensor']:
+    def _check_entity_id(entity_id: str, meter: 'MESMeterSensor'):
+        return meter.meter and meter.entity_id == entity_id
+
+    def _check_meter_code(meter_code: str, meter: 'MESMeterSensor'):
+        return meter.meter and meter.meter.meter_code == meter_code
+
+    def _find_meter_entity(call_data: 'MappingProxyType') -> Tuple[str, Optional['MESMeterSensor']]:
         entry_accounts: Dict[str, Dict[str, 'MESAccountSensor']] = hass.data.get(DATA_ENTITIES, {})
 
-        for account_sensors in entry_accounts.values():
+        if ATTR_ENTITY_ID in call_data:
+            attr = ATTR_ENTITY_ID
+            checker = partial(_check_entity_id, call_data[attr])
+        else:
+            attr = ATTR_METER_CODE
+            checker = partial(_check_meter_code, call_data[attr])
+
+        for entry_id, account_sensors in entry_accounts.items():
             for account_sensor in account_sensors.values():
                 for meter in account_sensor.meter_entities.values():
-                    if meter.entity_id == entity_id:
-                        return meter
+                    if checker(meter):
+                        return entry_id, meter
+
+        return attr, None
+
+    def _get_real_indications(meter_sensor: 'MESMeterSensor', call_data: 'MappingProxyType') \
+            -> Union[Tuple[Union[int, float], ...]]:
+        if call_data.get(ATTR_INCREMENTAL):
+            return tuple([
+                a + (s or l or 0)
+                for a, l, s in zip(
+                    call_data[ATTR_INDICATIONS],
+                    meter_sensor.meter.last_indications,
+                    meter_sensor.meter.submitted_indications,
+                )
+            ])
+        return call_data[ATTR_INDICATIONS]
 
     async def async_push_indications(call: ServiceCallType):
-        entity_id = call.data[ATTR_ENTITY_ID]
+        entry_id, meter_sensor = _find_meter_entity(call.data)
 
-        meter_sensor = _find_meter_entity(entity_id)
-        if not meter_sensor:
-            _LOGGER.error('Entity [%s] is not a registered meter' % entity_id)
+        if meter_sensor is None:
+            _LOGGER.error('Provided `%s` does not match any existing meter' % entry_id)
             return
 
-        if not (hasattr(meter_sensor, 'push_indications') and callable(getattr(meter_sensor, 'push_indications'))):
-            _LOGGER.error('Entity [%s] does not support indications pushing' % entity_id)
+        if not (hasattr(meter_sensor.meter, 'save_indications')
+                and callable(getattr(meter_sensor.meter, 'save_indications'))):
+            _LOGGER.error('Meter \'%s\' does not support indications pushing' % meter_sensor.meter.meter_code)
             return
 
-        indications = call.data[ATTR_INDICATIONS]
+        ignore_period = call.data[ATTR_IGNORE_PERIOD]
+        indications = _get_real_indications(meter_sensor, call.data)
+
         try:
-            await meter_sensor.meter.save_indications(indications,
-                                                      ignore_period_check=False,
-                                                      ignore_indications_check=False)
-            _LOGGER.debug('Submitted indications via service for meter %s (indications: %s)'
-                          % (meter_sensor.meter.meter_code, indications))
-            return True
+            comment = await meter_sensor.meter.save_indications(
+                indications,
+                ignore_period_check=ignore_period,
+                ignore_indications_check=False
+            )
+
+            hass.bus.async_fire(
+                event_type=EVENT_PUSH_RESULT,
+                event_data={
+                    'entity_id': meter_sensor.entity_id,
+                    'meter_code': meter_sensor.meter.meter_code,
+                    'indications': indications,
+                    'comment': comment,
+                },
+                context=call.context
+            )
+
+            # @TODO: this check might be ultra-redundant
+            if DATA_UPDATERS in hass.data and entry_id in hass.data[DATA_UPDATERS]:
+                _LOGGER.debug('Issuing account update')
+                hass.async_create_task(
+                    hass.data[DATA_UPDATERS][entry_id][1]()
+                )
+
+        except IndicationsCountException as e:
+            _LOGGER.error('Error: %s' % e)
+            return
 
         except MosenergosbytException as e:
             _LOGGER.error('API returned error: %s' % e)
             return
 
     async def async_calculate_indications(call: ServiceCallType):
-        entity_id = call.data[ATTR_ENTITY_ID]
+        entry_id, meter_sensor = _find_meter_entity(call.data)
 
-        meter_sensor = _find_meter_entity(entity_id)
-        if not meter_sensor:
-            _LOGGER.error('Entity [%s] is not a registered meter' % entity_id)
+        if meter_sensor is None:
+            _LOGGER.error('Provided `%s` does not match any existing meter' % entry_id)
             return
 
         if not (hasattr(meter_sensor.meter, 'get_charge_indications')
                 and callable(getattr(meter_sensor.meter, 'get_charge_indications'))):
-            _LOGGER.error('Entity [%s] does not support indications calculations' % entity_id)
+            _LOGGER.error('Meter \'%s\' does not support indications calculations' % meter_sensor.meter.meter_code)
             return
 
         ignore_period = call.data[ATTR_IGNORE_PERIOD]
-        indications = call.data[ATTR_INDICATIONS]
+        indications = _get_real_indications(meter_sensor, call.data)
 
         try:
             calculation: ChargeCalculation = \
@@ -270,15 +336,16 @@ async def async_register_services(hass: HomeAssistantType):
             hass.bus.async_fire(
                 event_type=EVENT_CALCULATION_RESULT,
                 event_data={
-                    'entity_id': entity_id,
+                    'entity_id': meter_sensor.entity_id,
+                    'meter_code': meter_sensor.meter.meter_code,
+                    'indications': indications,
                     'period': str(calculation.period),
                     'charged': calculation.charged,
                     'indications_dict': calculation.indications,
-                    'indications': indications,
+                    'comment': calculation.comment,
                 },
                 context=call.context
             )
-            _LOGGER.debug('Firing calculation result event: %d' % calculation)
 
         except IndicationsCountException as e:
             _LOGGER.error('Error: %s' % e)
@@ -336,7 +403,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
         await async_register_services(hass)
 
         hass.data.setdefault(DATA_UPDATERS, {})[config_entry.entry_id] = \
-            async_track_time_interval(hass, update_call, scan_interval)
+            (async_track_time_interval(hass, update_call, scan_interval), update_call)
 
         new_accounts, new_meters, new_invoices = result
 

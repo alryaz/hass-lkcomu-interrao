@@ -931,7 +931,7 @@ class MESElectricityMeter(_BaseMeter):
         return request_dict
 
     async def save_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                               ignore_indications_check: bool = False) -> None:
+                               ignore_indications_check: bool = False) -> str:
         """
         Submit indications to Mosenergosbyt.
         Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
@@ -939,13 +939,26 @@ class MESElectricityMeter(_BaseMeter):
         :param indications: Indications list / dictionary
         :param ignore_period_check: Ignore out-of-period safeguard
         :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
+        :return: Status comment
         """
         request_dict = await self._prepare_indications_request(indications,
                                                                ignore_period_check,
                                                                ignore_indications_check)
 
         self._account: MESAccount
-        await self._account.lk_byt_proxy('SaveIndications', request_dict)
+        result = await self._account.lk_byt_proxy('SaveIndications', request_dict)
+
+        result_data = result.get('data')
+        if result_data:
+            data = result_data[0]
+            if data['kd_result'] == ResponseCodes.RESPONSE_RESULT:
+                return data['nm_result']
+
+            if data['kd_result'] == 2:
+                raise IndicationsCountException('Sent invalid indications count')
+
+        _LOGGER.debug('Indications saving response data: %s' % result)
+        raise MosenergosbytException('Unknown error')
 
     async def get_charge_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
                                      ignore_indications_check: bool = False) -> 'ChargeCalculation':
@@ -968,12 +981,13 @@ class MESElectricityMeter(_BaseMeter):
         result_data = result.get('data')
         if result_data:
             data = result_data[0]
-            if data['pr_correct'] == 1:
+            if data['kd_result'] == ResponseCodes.RESPONSE_RESULT and data['pr_correct'] == 1:
                 return ChargeCalculation(self, indications, data['sm_charge'], data['nm_result'])
 
             if data['kd_result'] == 2:
                 raise IndicationsCountException('Sent invalid indications count')
 
+        _LOGGER.debug('Indications calculation response data: %s' % result)
         raise MosenergosbytException('Unknown error')
 
 

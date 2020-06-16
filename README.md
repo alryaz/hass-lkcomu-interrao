@@ -166,7 +166,7 @@ mosenergosbyt:
   meter_name: 'За {code} платим много!'
 ```
 
-####<a name="calculate_indications"></a> Подсчёт начислений до передачи показаний
+#### <a name="calculate_indications"></a>Подсчёт начислений до передачи показаний
 > Только для электрических счётчиков Мосэнергосбыт
 
 Компонент позволяет запускать службу `mosenergosbyt.calculate_indications` с параметрами:

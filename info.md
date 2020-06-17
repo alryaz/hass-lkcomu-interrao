@@ -3,25 +3,28 @@
 [![Donate Yandex](https://img.shields.io/badge/Donate-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 [![Donate PayPal](https://img.shields.io/badge/Donate-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 {% set mainline_num_ver = version_available.replace("v", "").replace(".", "") | int %}{%- set features = {
-    'v0.2.3': 'Set custom user agent for all requests; better session management',
-    'v0.2.2': 'Display TO VKGO service costs in invoices; pre-calculated submit dates for MES meters',
+    'v0.2.5': 'Отображение переданных за сегодня показаний (только МЭС)',
+    'v0.2.4': '**Возможность предварительно подсчитывать стоимость по показаниям, и отдельно передавать показания напрямую в МЭС**',
+    'v0.2.3': 'Установка произвольного User Agent для запросов; улучшение авторизации',
+    'v0.2.2': 'Отображение стоимость ТО "ВКГО"; показ дат начала и конца периода (включительных) для МЭС',
     'v0.2.0': 'Major architecture overhaul in preparation for new account types support (MES+TKO available already), invoices sensors, progress made towards integrating submissions',
-    'v0.1.1': 'Name formatting for entities',
-    'v0.1.0': 'Multiple accounts support, GUI configuration',
+    'v0.1.1': 'Форматирование названий объектов',
+    'v0.1.0': 'Поддержка нескольких пользователей; настройка через меню "Интеграции"',
 }-%}{%- set breaking_changes = namespace(header="Breaking Changes", changes={
     'v0.1.1': ['Account uses `account_code` attribute for its number instead of `number`']
 }) -%}{%- set bug_fixes = namespace(header="Bug fixes", changes={
+    'v0.2.5': ['Исправлено ложное отсутствие последних переданных показаний за текущий период'],
     'v0.2.3': ['Fixed unnecessary error verbosity', 'Fixed `info.md` duplicate headers'],
     'v0.2.2': ['Fixed non-negative value display for MES+TKO accounts'],
     'v0.2.1': ['Fixed reauthentication issue on network failure / server timeout']
 }) -%}
 {% if installed %}{% if version_installed == "master" %}
-#### ⚠ You are using development version
+#### ⚠ Вы используете версию для разработки
 This branch may be unstable, as it contains commits not tested beforehand.  
 Please, do not use this branch in production environments.
 {% else %}{% if version_installed == version_available %}
-#### ✔ You are using mainline version{% else %}{% set num_ver = version_installed.replace("v", "").replace(".","") | int %}
-#### 🚨 You are using an outdated release of Hekr component{% if num_ver < 20 %}
+#### ✔ Вы используете актуальную версию{% else %}{% set num_ver = version_installed.replace("v", "").replace(".","") | int %}
+#### 🚨 Вы используете устаревшую версию{% if num_ver < 20 %}
 {% for ver, changes in breaking_changes.changes.items() %}{% set ver = ver.replace("v", "").replace(".","") | int %}{% if num_ver < ver %}{% if breaking_changes.header %}
 ##### {{ breaking_changes.header }} (`{{ version_installed }}` -> `{{ version_available }}`){% set breaking_changes.header = None %}{% endif %}{% for change in changes %}
 {{ '- '+change }}{% endfor %}{% endif %}{% endfor %}

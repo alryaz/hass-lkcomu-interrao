@@ -299,6 +299,7 @@ class _BaseAccount:
                 raise UnsupportedProviderException('Unsupported provider (%d, "%s")'
                                                    % (instance_provider_id, account_data['nm_provider']))
 
+            # noinspection PyCallingNonCallable
             return create_class(account_data, api)
 
         if instance_provider_id != cls.provider_id:
@@ -456,7 +457,10 @@ class MESAccount(_BaseAccount):
 
         if self._meter_objects is None:
             self._meter_objects = {
-                meter_data['nm_meter_num']: MESElectricityMeter(account=self, data=meter_data)
+                meter_data['nm_meter_num']: MESElectricityMeter(
+                    account=self,
+                    data=meter_data
+                )
                 for meter_data in response['data']
             }
             return self._meter_objects
@@ -469,8 +473,12 @@ class MESAccount(_BaseAccount):
                 meter = self._meter_objects[meter_code]
                 meter.data = meter_data
                 keep_meter_objects.add(meter_code)
+
             else:
-                meter = MESElectricityMeter(account=self, data=meter_data)
+                meter = MESElectricityMeter(
+                    account=self,
+                    data=meter_data
+                )
                 self._meter_objects[meter_code] = meter
                 keep_meter_objects.add(meter_code)
 
@@ -559,7 +567,7 @@ class MESAccount(_BaseAccount):
         })
 
         return [{
-            'date': indication['dt_indication'],
+            'date': datetime.fromisoformat(indication['dt_indication']),
             '_taken_by': indication['nm_take'],
             '_source': indication['nm_indication_take'],
             'meters': {
@@ -703,8 +711,9 @@ class _BaseMeter:
         :param account: Tied account
         :param data: Meter data
         """
-        self._data = data
         self._account = account
+
+        self.data = data
 
     def __str__(self):
         return '%s[%s]' % (type(self).__name__, self.meter_code)
@@ -759,8 +768,20 @@ class _BaseMeter:
         )}
 
     @property
-    def last_indications(self) -> List[float]:
+    def today_indications(self) -> List[float]:
         raise NotImplementedError
+
+    @property
+    def last_indications(self) -> Optional[List[float]]:
+        raise NotImplementedError
+
+    @property
+    def submitted_indications(self) -> Optional[List[float]]:
+        raise NotImplementedError
+
+    @property
+    def invoice_indications(self) -> Optional[List[float]]:
+        return self.last_indications
 
     @property
     def period_start_date(self) -> date:
@@ -837,22 +858,40 @@ class MESElectricityMeter(_BaseMeter):
         return len(self.tariff_names)
 
     @property
-    def submitted_indications(self) -> List[float]:
+    def submitted_indications(self) -> Optional[List[float]]:
         """
         Submitted indications accessor.
-        Skims meter data for submitted indications and prepares data.
+        Skims meter data for submitted indications in current period, and prepares data.
         :return:
         """
-        return [self._data['vl_t%d_today' % i] for i in range(1, self.tariff_count + 1)]
+        if self.period_end_date >= self.last_indications_date >= self.period_start_date:
+            return self.last_indications
+
+    @property
+    def today_indications(self) -> List[float]:
+        """
+        Today indications accessor.
+        Skims meter data for indications submitted today and prepares data.
+        :return:
+        """
+        return [self._data['vl_%s_today' % i] for i in self.indications_ids]
 
     @property
     def last_indications(self) -> List[float]:
         """
         Last indications accessor.
-        Skims meter data for submitted indications and prepares data.
+        Returns data as list for indications submitted last.
         :return:
         """
-        return [self._data['vl_t%d_last_ind' % i] for i in range(1, self.tariff_count + 1)]
+        return [self._data['vl_%s_last_ind' % i] for i in self.indications_ids]
+
+    @property
+    def last_indications_date(self) -> date:
+        return datetime.fromisoformat(self._data['dt_last_ind']).date()
+
+    @property
+    def invoice_indications(self) -> Optional[List[float]]:
+        return [self._data['vl_%s_inv' % i] for i in self.indications_ids]
 
     @property
     def period_start_date(self) -> date:
@@ -992,6 +1031,10 @@ class MESElectricityMeter(_BaseMeter):
 
 
 class TKOIndicationMeter(_BaseMeter):
+    @property
+    def submitted_indications(self) -> Optional[List[float]]:
+        return None
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._meter_code = self.account_code
@@ -1021,6 +1064,10 @@ class TKOIndicationMeter(_BaseMeter):
         return [a['value'] for a in self._data.values()]
 
     @property
+    def today_indications(self) -> List[float]:
+        raise MosenergosbytException('Operation not supported for MES+TKO meters')
+
+    @property
     def period_start_date(self) -> date:
         return DateUtil.month_start()
 
@@ -1035,6 +1082,10 @@ class TKOIndicationMeter(_BaseMeter):
     @property
     def current_status(self) -> Optional[str]:
         return None
+
+    @property
+    def tariff_count(self) -> int:
+        return len(self._data)
 
     # Meter-specific properties
     @property

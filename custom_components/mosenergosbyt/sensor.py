@@ -529,11 +529,6 @@ class MESAccountSensor(MESEntity):
                                         service_name=self.account.service_name,
                                         provider_name=self.account.provider_name)
 
-    # # @TODO: find a better way to integrate pictures (1/2)
-    #    @property
-    #    def entity_picture(self):
-    #        return DEFAULT_PICTURE_ICON
-
     @property
     def unique_id(self):
         """Return the unique ID of the sensor"""
@@ -569,6 +564,9 @@ class MESMeterSensor(MESEntity):
 
             for i, value in enumerate(self.meter.submitted_indications, start=1):
                 attributes['submitted_value_t%d' % i] = value
+
+            for i, value in enumerate(self.meter.today_indications, start=1):
+                attributes['today_value_t%d' % i] = value
 
         else:
             for key, indication in self.meter.last_indications_dict.items():

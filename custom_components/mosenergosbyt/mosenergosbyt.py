@@ -844,7 +844,7 @@ class MESElectricityMeter(_BaseMeter):
         return {
             k: v
             for k, v in self._data.items()
-            if k[:-1] == 'nm_t'
+            if k[:-1] == 'nm_t' and v is not None
         }
 
     @property

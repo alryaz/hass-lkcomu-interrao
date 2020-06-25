@@ -559,21 +559,29 @@ class MESMeterSensor(MESEntity):
             attributes['submit_period_start'] = self.meter.period_start_date.isoformat()
             attributes['submit_period_end'] = self.meter.period_end_date.isoformat()
 
-            for i, value in enumerate(self.meter.last_indications, start=1):
-                attributes['last_value_t%d' % i] = value
+            last_indications = self.meter.last_indications
+            if last_indications:
+                for i, value in enumerate(self.meter.last_indications, start=1):
+                    attributes['last_value_t%d' % i] = value
 
-            for i, value in enumerate(self.meter.submitted_indications, start=1):
-                attributes['submitted_value_t%d' % i] = value
+            submitted_indications = self.meter.submitted_indications
+            if submitted_indications:
+                for i, value in enumerate(self.meter.submitted_indications, start=1):
+                    attributes['submitted_value_t%d' % i] = value
 
-            for i, value in enumerate(self.meter.today_indications, start=1):
-                attributes['today_value_t%d' % i] = value
+            today_indications = self.meter.today_indications
+            if today_indications:
+                for i, value in enumerate(self.meter.today_indications, start=1):
+                    attributes['today_value_t%d' % i] = value
 
         else:
-            for key, indication in self.meter.last_indications_dict.items():
-                attributes['last_value_%s' % key] = indication[Invoice.ATTRS.VALUE]
+            last_indications_dict = self.meter.last_indications_dict
+            if last_indications_dict:
+                for key, indication in last_indications_dict.items():
+                    attributes['last_value_%s' % key] = indication[Invoice.ATTRS.VALUE]
 
-                for attribute in [Invoice.ATTRS.NAME, Invoice.ATTRS.COST, Invoice.ATTRS.UNIT]:
-                    attributes['last_%s_%s' % (attribute, key)] = indication[attribute]
+                    for attribute in [Invoice.ATTRS.NAME, Invoice.ATTRS.COST, Invoice.ATTRS.UNIT]:
+                        attributes['last_%s_%s' % (attribute, key)] = indication[attribute]
 
         self._state = STATE_OK if meter_status is None else meter_status
         self._attributes = attributes

@@ -105,7 +105,37 @@ class ServiceType(_IntEnum):
 
 class Provider(_IntEnum):
     MES = 1
-    MES_TKO = 6
+    MOE = 2
+    TMK_NRG = 3
+    TMK_RTS = 4
+    UFA = 5
+    TKO = 6
+    VLG = 7
+    ORL = 8
+    ORL_EPD = 9
+    ALT = 10
+    TMB = 11
+    VLD = 12
+    SAR = 13
+    KSG = 14
+
+
+provider_proxy_list = {
+    Provider.MES: "bytProxy",
+    Provider.MOE: "smorodinaTransProxy",
+    Provider.ORL: "orlBytProxy",
+    Provider.TMK_NRG: "tomskProxy",
+    Provider.TMK_RTS: "tomskProxy",
+    Provider.UFA: "ufaProxy",
+    Provider.TKO: "trashProxy",
+    Provider.VLG: "vlgProxy",
+    Provider.ALT: "altProxy",
+    Provider.SAR: "sarProxy",
+    Provider.TMB: "tmbProxy",
+    Provider.VLD: "vldProxy",
+    Provider.ORL_EPD: "orlProxy",
+    Provider.KSG: "ksgProxy",
+}
 
 
 class ResponseCodes(IntEnum):
@@ -127,6 +157,11 @@ class API:
     BASE_URL = "https://my.mosenergosbyt.ru"
     AUTH_URL = BASE_URL + "/auth"
     REQUEST_URL = BASE_URL + "/gate_lkcomu"
+
+    _supported_providers: Dict[Provider, Union[bool, List[ServiceType]]] = {
+        Provider.MES: True,
+        Provider.TKO: True,
+    }
 
     def __init__(self, username: str, password: str, user_agent: Optional[str] = None, timeout: int = 5):
         self.__username = username
@@ -260,17 +295,20 @@ class API:
     async def get_accounts(self) -> Dict[str, '_BaseAccount']:
         response = await self.request_sql('LSList')
 
-        providers = _BaseAccount.provider_classes().keys()
+        supported_providers = self._supported_providers
         # service_types_list = ServiceType.list()
 
-        return {
-            account['nn_ls']: _BaseAccount.get_instance(
-                account_data=account,
-                api=self
-            )
-            for account in response['data']
-            if account['kd_provider'] in providers
-        }
+        accounts_dict = dict()
+        for account in response['data']:
+            provider_supported = supported_providers.get(account['kd_provider'])
+            if provider_supported:
+                if provider_supported is True or account['kd_service_type'] in provider_supported:
+                    accounts_dict[account['nn_ls']] = _BaseAccount.get_instance(
+                        account_data=account,
+                        api=self
+                    )
+
+        return accounts_dict
 
 
 class _BaseAccount:
@@ -817,7 +855,7 @@ class MESElectricityMeter(_BaseMeter):
 
     @property
     def indications_names(self) -> List[str]:
-        return [self._data['nm_t%d' % i] for i in range(1, self.tariff_count + 1)]
+        return [self._data['nm_%s' % i] for i in self.indications_ids]
 
     @property
     def indications_ids(self) -> List[str]:
@@ -858,7 +896,7 @@ class MESElectricityMeter(_BaseMeter):
         return len(self.tariff_names)
 
     @property
-    def submitted_indications(self) -> Optional[List[float]]:
+    def submitted_indications(self) -> List[Optional[float]]:
         """
         Submitted indications accessor.
         Skims meter data for submitted indications in current period, and prepares data.
@@ -866,6 +904,10 @@ class MESElectricityMeter(_BaseMeter):
         """
         if self.period_end_date >= self.last_indications_date >= self.period_start_date:
             return self.last_indications
+        today_indications = self.today_indications
+        if any(today_indications):
+            return today_indications
+        return [None]*self.tariff_count
 
     @property
     def today_indications(self) -> List[float]:
@@ -874,7 +916,7 @@ class MESElectricityMeter(_BaseMeter):
         Skims meter data for indications submitted today and prepares data.
         :return:
         """
-        return [self._data['vl_%s_today' % i] for i in self.indications_ids]
+        return [self._data.get('vl_%s_today' % i) for i in self.indications_ids]
 
     @property
     def last_indications(self) -> List[float]:
@@ -883,7 +925,7 @@ class MESElectricityMeter(_BaseMeter):
         Returns data as list for indications submitted last.
         :return:
         """
-        return [self._data['vl_%s_last_ind' % i] for i in self.indications_ids]
+        return [self._data.get('vl_%s_last_ind' % i) for i in self.indications_ids]
 
     @property
     def last_indications_date(self) -> date:

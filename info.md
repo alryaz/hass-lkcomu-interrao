@@ -3,6 +3,7 @@
 [![Donate Yandex](https://img.shields.io/badge/Donate-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 [![Donate PayPal](https://img.shields.io/badge/Donate-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 {% set mainline_num_ver = version_available.replace("v", "").replace(".", "") | int %}{%- set features = {
+    'v0.2.6': 'Возможность отображения уведомлений при успешных вызовах служб',
     'v0.2.5': 'Отображение переданных за сегодня показаний (только МЭС)',
     'v0.2.4': '**Возможность предварительно подсчитывать стоимость по показаниям, и отдельно передавать показания напрямую в МЭС**',
     'v0.2.3': 'Установка произвольного User Agent для запросов; улучшение авторизации',
@@ -13,6 +14,7 @@
 }-%}{%- set breaking_changes = namespace(header="Breaking Changes", changes={
     'v0.1.1': ['Account uses `account_code` attribute for its number instead of `number`']
 }) -%}{%- set bug_fixes = namespace(header="Bug fixes", changes={
+    'v0.2.6': ['Расширены способы получения переданных показаний из ЛК'],
     'v0.2.5': ['Исправлено ложное отсутствие последних переданных показаний за текущий период'],
     'v0.2.3': ['Fixed unnecessary error verbosity', 'Fixed `info.md` duplicate headers'],
     'v0.2.2': ['Fixed non-negative value display for MES+TKO accounts'],

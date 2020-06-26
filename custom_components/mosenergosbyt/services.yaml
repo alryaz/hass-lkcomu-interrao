@@ -16,6 +16,9 @@ push_indications:
     ignore_period:
       description: 'Игнорировать ограничения по периоду'
       example: 'false'
+    notification:
+      description: 'Показывать уведомление при успешной передаче'
+      example: 'true'
 
 calculate_indications:
   description: 'Подсчитать начисления по передаваемым показаниям'
@@ -35,3 +38,6 @@ calculate_indications:
     ignore_period:
       description: 'Игнорировать ограничения по периоду'
       example: 'false'
+    notification:
+      description: 'Показывать уведомление при успешном подсчёте'
+      example: 'true'

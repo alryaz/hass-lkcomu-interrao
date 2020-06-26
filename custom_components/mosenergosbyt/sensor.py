@@ -11,8 +11,10 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.components import persistent_notification
 from homeassistant.const import CONF_USERNAME, CONF_SCAN_INTERVAL, ATTR_ENTITY_ID, STATE_OK, \
     STATE_LOCKED, STATE_UNKNOWN, ATTR_ATTRIBUTION
+from homeassistant.core import Context
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
@@ -37,6 +39,7 @@ ATTR_METER_CODE = "meter_code"
 ATTR_INDICATIONS = "indications"
 ATTR_INCREMENTAL = "incremental"
 ATTR_IGNORE_PERIOD = "ignore_period"
+ATTR_NOTIFICATION = "create_notification"
 
 DEFAULT_MAX_INDICATIONS = 3
 INDICATIONS_SCHEMA = vol.Any(
@@ -50,25 +53,24 @@ METER_IDENTIFIERS = {
 }
 SCHEMA_METER_IDENTIFIERS = vol.Schema(METER_IDENTIFIERS, required=True, extra=vol.ALLOW_EXTRA)
 
-SERVICE_PUSH_INDICATIONS = 'push_indications'
-SERVICE_PUSH_INDICATIONS_PAYLOAD_SCHEMA = vol.All(
+CALCULATE_PUSH_INDICATIONS_SCHEMA = vol.All(
     SCHEMA_METER_IDENTIFIERS, {
         **METER_IDENTIFIERS,
         vol.Required(ATTR_INDICATIONS): INDICATIONS_SCHEMA,
         vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
         vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
+        vol.Optional(ATTR_NOTIFICATION, default=False): vol.Any(
+            cv.boolean,
+            persistent_notification.SCHEMA_SERVICE_CREATE,
+        )
     }
 )
 
+SERVICE_PUSH_INDICATIONS = 'push_indications'
+SERVICE_PUSH_INDICATIONS_PAYLOAD_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
+
 SERVICE_CALCULATE_INDICATIONS = 'calculate_indications'
-SERVICE_CALCULATE_INDICATIONS_PAYLOAD_SCHEMA = vol.All(
-    SCHEMA_METER_IDENTIFIERS, {
-        **METER_IDENTIFIERS,
-        vol.Required(ATTR_INDICATIONS): INDICATIONS_SCHEMA,
-        vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
-        vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
-    }
-)
+SERVICE_CALCULATE_INDICATIONS_PAYLOAD_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
 
 EVENT_CALCULATION_RESULT = DOMAIN + "_calculation_result"
 EVENT_PUSH_RESULT = DOMAIN + "_push_result"
@@ -284,16 +286,46 @@ async def async_register_services(hass: HomeAssistantType):
                 ignore_indications_check=False
             )
 
+            event_data = {
+                'entity_id': meter_sensor.entity_id,
+                'meter_code': meter_sensor.meter.meter_code,
+                'indications': indications,
+                'comment': comment,
+            }
+
             hass.bus.async_fire(
                 event_type=EVENT_PUSH_RESULT,
-                event_data={
-                    'entity_id': meter_sensor.entity_id,
-                    'meter_code': meter_sensor.meter.meter_code,
-                    'indications': indications,
-                    'comment': comment,
-                },
+                event_data=event_data,
                 context=call.context
             )
+
+            meter_code = meter_sensor.meter.meter_code
+
+            notification_content = call.data[ATTR_NOTIFICATION]
+            if notification_content:
+                payload = {
+                    persistent_notification.ATTR_TITLE:
+                        f"Переданы показания - №{meter_code}",
+                    persistent_notification.ATTR_NOTIFICATION_ID:
+                        f"mosenergosbyt_push_indications_{meter_code}",
+                    persistent_notification.ATTR_MESSAGE:
+                        f"Показания переданы для счётчика №{meter_code} за период "
+                        f"{meter_sensor.meter.period_start_date} &mdash; {meter_sensor.meter.period_end_date}"
+                }
+
+                if notification_content is not True:
+                    payload.update({
+                        key: value.format(**event_data)
+                        for key, value in notification_content.items()
+                    })
+
+                hass.async_create_task(
+                    hass.services.async_call(
+                        persistent_notification.DOMAIN,
+                        persistent_notification.SERVICE_CREATE,
+                        payload,
+                    )
+                )
 
             # @TODO: this check might be ultra-redundant
             if DATA_UPDATERS in hass.data and entry_id in hass.data[DATA_UPDATERS]:
@@ -333,19 +365,47 @@ async def async_register_services(hass: HomeAssistantType):
                     ignore_indications_check=False
                 )
 
+            meter_code = meter_sensor.meter.meter_code
+
+            event_data = {
+                'entity_id': meter_sensor.entity_id,
+                'meter_code': meter_code,
+                'indications': indications,
+                'period': str(calculation.period),
+                'charged': calculation.charged,
+                'indications_dict': calculation.indications,
+                'comment': calculation.comment,
+            }
+
             hass.bus.async_fire(
                 event_type=EVENT_CALCULATION_RESULT,
-                event_data={
-                    'entity_id': meter_sensor.entity_id,
-                    'meter_code': meter_sensor.meter.meter_code,
-                    'indications': indications,
-                    'period': str(calculation.period),
-                    'charged': calculation.charged,
-                    'indications_dict': calculation.indications,
-                    'comment': calculation.comment,
-                },
+                event_data=event_data,
                 context=call.context
             )
+
+            notification_content = call.data[ATTR_NOTIFICATION]
+            if notification_content:
+                payload = {
+                    persistent_notification.ATTR_TITLE:
+                        f"Подсчёт начислений - №{meter_code}",
+                    persistent_notification.ATTR_NOTIFICATION_ID:
+                        f"mosenergosbyt_calculate_indications_{meter_code}",
+                    persistent_notification.ATTR_MESSAGE: calculation.comment,
+                }
+
+                if notification_content is not True:
+                    payload.update({
+                        key: value.format(**event_data)
+                        for key, value in notification_content.items()
+                    })
+
+                hass.async_create_task(
+                    hass.services.async_call(
+                        persistent_notification.DOMAIN,
+                        persistent_notification.SERVICE_CREATE,
+                        payload,
+                    )
+                )
 
         except IndicationsCountException as e:
             _LOGGER.error('Error: %s' % e)

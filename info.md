@@ -3,6 +3,7 @@
 [![Donate Yandex](https://img.shields.io/badge/Donate-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 [![Donate PayPal](https://img.shields.io/badge/Donate-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 {% set mainline_num_ver = version_available.replace("v", "").replace(".", "") | int %}{%- set features = {
+    'v0.2.7': 'Отображение стоимости за кВт/ч (для каждого из тарифов) (только МЭС)',
     'v0.2.6': 'Возможность отображения уведомлений при успешных вызовах служб',
     'v0.2.5': 'Отображение переданных за сегодня показаний (только МЭС)',
     'v0.2.4': '**Возможность предварительно подсчитывать стоимость по показаниям, и отдельно передавать показания напрямую в МЭС**',

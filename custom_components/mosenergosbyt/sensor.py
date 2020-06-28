@@ -14,7 +14,6 @@ from homeassistant import config_entries
 from homeassistant.components import persistent_notification
 from homeassistant.const import CONF_USERNAME, CONF_SCAN_INTERVAL, ATTR_ENTITY_ID, STATE_OK, \
     STATE_LOCKED, STATE_UNKNOWN, ATTR_ATTRIBUTION
-from homeassistant.core import Context
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
@@ -24,7 +23,7 @@ from . import DATA_CONFIG, CONF_ACCOUNTS, DEFAULT_SCAN_INTERVAL, DATA_API_OBJECT
     CONF_LOGIN_TIMEOUT, DEFAULT_LOGIN_TIMEOUT, DEFAULT_METER_NAME_FORMAT, CONF_METER_NAME, CONF_ACCOUNT_NAME, \
     DEFAULT_ACCOUNT_NAME_FORMAT, DOMAIN, CONF_INVOICES, DEFAULT_INVOICE_NAME_FORMAT, CONF_INVOICE_NAME
 from .mosenergosbyt import MosenergosbytException, ServiceType, MESElectricityMeter, _BaseMeter, \
-    _BaseAccount, Invoice, ChargeCalculation, IndicationsCountException
+    _BaseAccount, Invoice, IndicationsCountException, _SubmittableMeter
 
 if TYPE_CHECKING:
     from types import MappingProxyType
@@ -271,8 +270,7 @@ async def async_register_services(hass: HomeAssistantType):
             _LOGGER.error('Provided `%s` does not match any existing meter' % entry_id)
             return
 
-        if not (hasattr(meter_sensor.meter, 'save_indications')
-                and callable(getattr(meter_sensor.meter, 'save_indications'))):
+        if not isinstance(meter_sensor.meter, _SubmittableMeter):
             _LOGGER.error('Meter \'%s\' does not support indications pushing' % meter_sensor.meter.meter_code)
             return
 
@@ -280,7 +278,7 @@ async def async_register_services(hass: HomeAssistantType):
         indications = _get_real_indications(meter_sensor, call.data)
 
         try:
-            comment = await meter_sensor.meter.save_indications(
+            comment = await meter_sensor.meter.submit_indications(
                 indications,
                 ignore_period_check=ignore_period,
                 ignore_indications_check=False
@@ -349,8 +347,7 @@ async def async_register_services(hass: HomeAssistantType):
             _LOGGER.error('Provided `%s` does not match any existing meter' % entry_id)
             return
 
-        if not (hasattr(meter_sensor.meter, 'get_charge_indications')
-                and callable(getattr(meter_sensor.meter, 'get_charge_indications'))):
+        if not isinstance(meter_sensor.meter, _SubmittableMeter):
             _LOGGER.error('Meter \'%s\' does not support indications calculations' % meter_sensor.meter.meter_code)
             return
 
@@ -358,12 +355,11 @@ async def async_register_services(hass: HomeAssistantType):
         indications = _get_real_indications(meter_sensor, call.data)
 
         try:
-            calculation: ChargeCalculation = \
-                await meter_sensor.meter.get_charge_indications(
-                    indications,
-                    ignore_period_check=ignore_period,
-                    ignore_indications_check=False
-                )
+            calculation = await meter_sensor.meter.calculate_indications(
+                indications,
+                ignore_period_check=ignore_period,
+                ignore_indications_check=False
+            )
 
             meter_code = meter_sensor.meter.meter_code
 
@@ -475,6 +471,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
         raise PlatformNotReady('Error while setting up entry "%s": %s' % (config_entry.entry_id, str(e))) from None
 
 
+# noinspection PyUnusedLocal
 async def async_setup_platform(hass: HomeAssistantType, config: ConfigType, async_add_entities,
                                discovery_info=None):
     """Set up the sensor platform"""
@@ -539,7 +536,16 @@ class MESAccountSensor(MESEntity):
             'service_type': self.account.service_type.name.lower(),
         }
 
-        if not self.account.is_locked:
+        if self.account.is_locked:
+            attributes.update({
+                'status': STATE_LOCKED,
+                'reason': self.account.lock_reason
+            })
+
+            self._state = STATE_UNKNOWN
+            self._unit = None
+
+        else:
             try:
                 _LOGGER.debug('Updating account %s' % self)
                 last_payment = await self.account.get_last_payment()
@@ -569,15 +575,6 @@ class MESAccountSensor(MESEntity):
 
             self._state = current_balance
             self._unit = 'руб.'
-
-        else:
-            attributes.update({
-                'status': STATE_LOCKED,
-                'reason': self.account.lock_reason
-            })
-
-            self._state = STATE_UNKNOWN
-            self._unit = None
 
         self._attributes = attributes
         _LOGGER.debug('Update for account %s finished' % self)
@@ -619,20 +616,26 @@ class MESMeterSensor(MESEntity):
             attributes['submit_period_start'] = self.meter.period_start_date.isoformat()
             attributes['submit_period_end'] = self.meter.period_end_date.isoformat()
 
+            tariff_ids = self.meter.indications_ids
+
+            tariff_costs = self.meter.tariff_costs
+            for i, value in zip(tariff_ids, tariff_costs):
+                attributes['cost_per_kwh_%s' % i] = value
+
             last_indications = self.meter.last_indications
             if last_indications:
-                for i, value in enumerate(self.meter.last_indications, start=1):
-                    attributes['last_value_t%d' % i] = value
+                for i, value in zip(tariff_ids, self.meter.last_indications):
+                    attributes['last_value_%s' % i] = value
 
             submitted_indications = self.meter.submitted_indications
             if submitted_indications:
-                for i, value in enumerate(self.meter.submitted_indications, start=1):
-                    attributes['submitted_value_t%d' % i] = value
+                for i, value in zip(tariff_ids, self.meter.submitted_indications):
+                    attributes['submitted_value_%s' % i] = value
 
             today_indications = self.meter.today_indications
             if today_indications:
-                for i, value in enumerate(self.meter.today_indications, start=1):
-                    attributes['today_value_t%d' % i] = value
+                for i, value in zip(tariff_ids, self.meter.today_indications):
+                    attributes['today_value_%s' % i] = value
 
         else:
             last_indications_dict = self.meter.last_indications_dict

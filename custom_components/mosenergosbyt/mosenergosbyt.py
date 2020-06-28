@@ -3,11 +3,13 @@ import asyncio
 import json
 import logging
 from _ast import arg
+from abc import ABC
 from datetime import datetime, date
 from enum import IntEnum
 from functools import partial
 from hashlib import md5
-from typing import Optional, List, Dict, Union, Iterable, Any, Type, Set, TypeVar
+from types import MappingProxyType
+from typing import Optional, List, Dict, Union, Iterable, Any, Type, Set, TypeVar, Mapping
 from urllib import parse
 
 import aiohttp
@@ -60,16 +62,13 @@ class DateUtil:
 
     @staticmethod
     def month_start(to_datetime: bool = False, timezone: Optional['tz'] = None) -> AnyDate:
-        month_start = DateUtil.moscow_today(True, timezone or MOSCOW_TIMEZONE).replace(day=1,
-                                                                                       hour=0,
-                                                                                       minute=0,
-                                                                                       second=0,
-                                                                                       microsecond=0)
+        today = DateUtil.moscow_today(True, timezone or MOSCOW_TIMEZONE)
+        month_start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         return month_start if to_datetime else month_start.date()
 
     @staticmethod
     def month_end(to_datetime: bool = False, timezone: Optional['tz'] = None) -> AnyDate:
-        month_end = DateUtil.month_start(True, timezone or MOSCOW_TIMEZONE) + relativedelta(months=1, seconds=-1)
+        month_end = DateUtil.month_start(True, timezone or MOSCOW_TIMEZONE) + OFFSET_START_TO_END
         return month_end if to_datetime else month_end.date()
 
     @staticmethod
@@ -299,14 +298,17 @@ class API:
         # service_types_list = ServiceType.list()
 
         accounts_dict = dict()
-        for account in response['data']:
-            provider_supported = supported_providers.get(account['kd_provider'])
+        for account_data in response['data']:
+            provider_supported = supported_providers.get(account_data['kd_provider'])
             if provider_supported:
-                if provider_supported is True or account['kd_service_type'] in provider_supported:
-                    accounts_dict[account['nn_ls']] = _BaseAccount.get_instance(
-                        account_data=account,
+                if provider_supported is True or account_data['kd_service_type'] in provider_supported:
+                    account = _BaseAccount.get_instance(
+                        account_data=account_data,
                         api=self
                     )
+                    await account.update_info()
+
+                    accounts_dict[account_data['nn_ls']] = account
 
         return accounts_dict
 
@@ -318,9 +320,26 @@ class _BaseAccount:
     ACCOUNT_URL = "https://my.mosenergosbyt.ru/accounts"
 
     def __init__(self, account_data: Dict[str, Any], api: API):
-        self._account_data = account_data
+        self._account_data: Dict[str, Any] = account_data
+        self._account_info: Optional[Dict[str, Any]] = None
         self._meter_objects: Optional[Dict[str, _BaseMeter]] = None
-        self.api = api
+        self.api: API = api
+
+    async def update_info(self) -> None:
+        """
+        Update additional account information
+        :return:
+        """
+        _LOGGER.debug('%s does not support info updates' % (self.__class__.__name__, ))
+        return NotImplemented
+
+    @property
+    def data(self) -> Mapping[str, Any]:
+        return MappingProxyType(self._account_data)
+
+    @property
+    def info(self) -> Optional[Mapping[str, Any]]:
+        return MappingProxyType(self._account_info) if self._account_info else None
 
     @staticmethod
     def provider_classes() -> Dict[int, '_BaseAccount']:
@@ -490,6 +509,10 @@ class MESAccount(_BaseAccount):
         return await self.proxy_request('bytProxy', proxy_query, data)
 
     # Base implementation
+    async def update_info(self) -> None:
+        response = await self.lk_byt_proxy('LSInfo')
+        self._account_info = response['data'][0]
+
     async def get_meters(self) -> Dict[str, 'MESElectricityMeter']:
         response = await self.lk_byt_proxy('Meters')
 
@@ -740,7 +763,7 @@ class MESTKOAccount(_BaseAccount):
         return indications[0] if indications else None
 
 
-class _BaseMeter:
+class _BaseMeter(ABC):
     DataType = TypeVar('DataType')
 
     def __init__(self, account: '_BaseAccount', data: DataType):
@@ -842,7 +865,35 @@ class _BaseMeter:
         raise NotImplementedError
 
 
-class MESElectricityMeter(_BaseMeter):
+class _SubmittableMeter(_BaseMeter, ABC):
+    async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                 ignore_indications_check: bool = False) -> str:
+        """
+        Submit indications to Mosenergosbyt.
+        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
+        submissions. Override these safeguards at your own risk.
+        :param indications: Indications list / dictionary
+        :param ignore_period_check: Ignore out-of-period safeguard
+        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
+        :return: Status comment
+        """
+        raise NotImplementedError
+
+    async def calculate_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                    ignore_indications_check: bool = False) -> 'ChargeCalculation':
+        """
+        Calculate indications charges with Mosenergosbyt.
+        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
+        submissions. Override these safeguards at your own risk.
+        :param indications: Indications list / dictionary
+        :param ignore_period_check: Ignore out-of-period safeguard
+        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
+        :return: Charge calculation object
+        """
+        raise NotImplementedError
+
+
+class MESElectricityMeter(_SubmittableMeter):
     """ Mosenergosbyt meter class """
 
     @property
@@ -896,6 +947,15 @@ class MESElectricityMeter(_BaseMeter):
         return len(self.tariff_names)
 
     @property
+    def tariff_costs(self) -> List[Optional[float]]:
+        account_info = self._account.info
+        tariff_costs = list()
+        for i in self.indications_ids:
+            tariff_cost = account_info.get('vl_%s_tariff' % i)
+            tariff_costs.append(None if tariff_cost is None else float(tariff_cost))
+        return tariff_costs
+
+    @property
     def submitted_indications(self) -> List[Optional[float]]:
         """
         Submitted indications accessor.
@@ -932,7 +992,7 @@ class MESElectricityMeter(_BaseMeter):
         return datetime.fromisoformat(self._data['dt_last_ind']).date()
 
     @property
-    def invoice_indications(self) -> Optional[List[float]]:
+    def invoice_indications(self) -> List[float]:
         return [self._data['vl_%s_inv' % i] for i in self.indications_ids]
 
     @property
@@ -1011,8 +1071,8 @@ class MESElectricityMeter(_BaseMeter):
 
         return request_dict
 
-    async def save_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                               ignore_indications_check: bool = False) -> str:
+    async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                 ignore_indications_check: bool = False) -> str:
         """
         Submit indications to Mosenergosbyt.
         Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
@@ -1041,8 +1101,8 @@ class MESElectricityMeter(_BaseMeter):
         _LOGGER.debug('Indications saving response data: %s' % result)
         raise MosenergosbytException('Unknown error')
 
-    async def get_charge_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                                     ignore_indications_check: bool = False) -> 'ChargeCalculation':
+    async def calculate_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                    ignore_indications_check: bool = False) -> 'ChargeCalculation':
         """
         Calculate indications charges with Mosenergosbyt.
         Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete

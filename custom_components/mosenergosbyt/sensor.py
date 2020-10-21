@@ -48,9 +48,11 @@ ATTR_SUCCESS = "success"
 ATTR_CALL_PARAMS = "call_params"
 
 DEFAULT_MAX_INDICATIONS = 3
+
+INDICATION_VALIDATOR = vol.All(vol.Coerce(float), vol.Range(min=0, min_included=True))
 INDICATIONS_SCHEMA = vol.Any(
-    {vol.All(int, vol.Range(1, DEFAULT_MAX_INDICATIONS)): cv.positive_int},
-    vol.All([cv.positive_int], vol.Length(1, DEFAULT_MAX_INDICATIONS))
+    {vol.All(int, vol.Range(1, DEFAULT_MAX_INDICATIONS)): INDICATION_VALIDATOR},
+    vol.All([INDICATION_VALIDATOR], vol.Length(1, DEFAULT_MAX_INDICATIONS))
 )
 
 METER_IDENTIFIERS = {

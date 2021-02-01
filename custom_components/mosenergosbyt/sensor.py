@@ -148,10 +148,13 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
             meters = await account.get_meters()
 
             if use_meter_filter:
-                account_filter = user_cfg[CONF_ACCOUNTS][account_code]
+                account_filter = user_cfg[CONF_ACCOUNTS].get(account_code)
 
                 if account_filter is not True:
-                    meters = {k: v for k, v in meters if k in account_filter}
+                    if account_filter:
+                        meters = {k: v for k, v in meters if k in account_filter}
+                    else:
+                        meters = {}
 
             if account_entity.meter_entities is None:
                 meter_entities = {}

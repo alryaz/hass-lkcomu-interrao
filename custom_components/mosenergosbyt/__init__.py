@@ -46,7 +46,11 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_USERNAME): cv.string,
                 vol.Required(CONF_PASSWORD): cv.string,
                 vol.Optional(CONF_ACCOUNTS, default=[]): vol.Any(
-                    vol.All(cv.ensure_list, [cv.string]),
+                    vol.All(
+                        cv.ensure_list,
+                        [cv.string],
+                        lambda x: dict.fromkeys(x, True)
+                    ),
                     {cv.string: vol.Any(
                         vol.All(cv.ensure_list, [cv.string]),
                         vol.All(cv.boolean, True)

@@ -133,6 +133,15 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
     tasks = []
     for account_code, account in accounts.items():
         _LOGGER.debug('Setting up account %s for username %s' % (account_code, username))
+        
+        if use_meter_filter:
+            meter_filter = user_cfg[CONF_ACCOUNTS].get(account_code)
+            
+            if meter_filter is None:
+                _LOGGER.debug('Completely skipping account %s for username %s' % (account_code, username))
+                continue
+        else:
+            meter_filter = True
 
         account_entity = created_entities.get(account_code)
         if account_entity is None:
@@ -147,14 +156,8 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
             # Process meters
             meters = await account.get_meters()
 
-            if use_meter_filter:
-                account_filter = user_cfg[CONF_ACCOUNTS].get(account_code)
-
-                if account_filter is not True:
-                    if account_filter:
-                        meters = {k: v for k, v in meters if k in account_filter}
-                    else:
-                        meters = {}
+            if meter_filter is not True:
+                meters = {k: v for k, v in meters if k in meter_filter}
 
             if account_entity.meter_entities is None:
                 meter_entities = {}

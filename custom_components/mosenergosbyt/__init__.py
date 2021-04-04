@@ -139,7 +139,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
             )
             return False
 
-        user_cfg = yaml_config.get(username)
+        user_cfg = yaml_config[username]
 
     _LOGGER.debug('Setting up config entry for user "%s"' % username)
 

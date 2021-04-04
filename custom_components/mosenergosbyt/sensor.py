@@ -588,7 +588,7 @@ class MESAccountSensor(MESEntity):
         else:
             try:
                 _LOGGER.debug('Updating account %s' % self)
-                last_payment = await self.account.get_last_payment()
+                last_payment = (await self.account.get_last_payment()) or {}
                 current_balance = await self.account.get_current_balance()
 
                 if self.account.service_type == ServiceType.ELECTRICITY:
@@ -603,9 +603,9 @@ class MESAccountSensor(MESEntity):
                 return False
 
             attributes.update({
-                'last_payment_date': last_payment['date'],
-                'last_payment_amount': last_payment['amount'],
-                'last_payment_status': last_payment['status'],
+                'last_payment_date': last_payment.get('date'),
+                'last_payment_amount': last_payment.get('amount'),
+                'last_payment_status': last_payment.get('status', STATE_UNKNOWN),
                 'service_type': self.account.service_type.name.lower(),
                 'status': STATE_OK,
             })

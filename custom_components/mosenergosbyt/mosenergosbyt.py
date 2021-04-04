@@ -698,23 +698,27 @@ class MESTKOAccount(_BaseAccount):
             'kd_tp_mode': 1
         })
 
-        return [Invoice(
-            account=self,
-            invoice_id=invoice['vl_report_uuid'],
-            period=datetime.fromisoformat(invoice_group['dt_period']).date(),
-            calculations={
-                Invoice.INITIAL_BALANCE: invoice['sm_start'],
-                Invoice.ADJUSTMENTS: invoice['sm_recalculations'],
-                Invoice.COSTS.CHARGED: invoice['sm_charged'],
-                Invoice.COSTS.INSURANCE: invoice['sm_insurance'],
-                Invoice.COSTS.PENALTY: invoice['sm_penalty'],
-                Invoice.COSTS.SERVICE: invoice['sm_tovkgo'],
-                Invoice.DEDUCTIONS.BENEFITS: invoice['sm_benefits'],
-                Invoice.DEDUCTIONS.PAYMENTS: invoice['sm_payed'],
-                Invoice.TOTAL: invoice['sm_total'],
-            },
-            charges=self._generate_indications_from_charges(invoice['child'], with_calculations=True))
-            for invoice_group in response['data'] for invoice in invoice_group['child']]
+        return [
+            Invoice(
+                account=self,
+                invoice_id=invoice['vl_report_uuid'],
+                period=datetime.fromisoformat(invoice_group['dt_period']).date(),
+                calculations={
+                    Invoice.INITIAL_BALANCE: invoice['sm_start'],
+                    Invoice.ADJUSTMENTS: invoice['sm_recalculations'],
+                    Invoice.COSTS.CHARGED: invoice['sm_charged'],
+                    Invoice.COSTS.INSURANCE: invoice['sm_insurance'],
+                    Invoice.COSTS.PENALTY: invoice['sm_penalty'],
+                    Invoice.COSTS.SERVICE: invoice['sm_tovkgo'],
+                    Invoice.DEDUCTIONS.BENEFITS: invoice['sm_benefits'],
+                    Invoice.DEDUCTIONS.PAYMENTS: invoice['sm_payed'],
+                    Invoice.TOTAL: invoice['sm_total'],
+                },
+                charges=self._generate_indications_from_charges(invoice['child'], with_calculations=True)
+            )
+            for invoice_group in response['data']
+            for invoice in invoice_group.get('child', [])
+        ]
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
         response = await self.lk_trash_proxy('AbonentPays', {

@@ -22,8 +22,8 @@ from homeassistant.helpers.typing import HomeAssistantType, ConfigType, ServiceC
 from . import DATA_CONFIG, CONF_ACCOUNTS, DEFAULT_SCAN_INTERVAL, DATA_API_OBJECTS, DATA_ENTITIES, DATA_UPDATERS, \
     CONF_LOGIN_TIMEOUT, DEFAULT_LOGIN_TIMEOUT, DEFAULT_METER_NAME_FORMAT, CONF_METER_NAME, CONF_ACCOUNT_NAME, \
     DEFAULT_ACCOUNT_NAME_FORMAT, DOMAIN, CONF_INVOICES, DEFAULT_INVOICE_NAME_FORMAT, CONF_INVOICE_NAME
-from .mosenergosbyt import MosenergosbytException, ServiceType, MESElectricityMeter, _BaseMeter, \
-    _BaseAccount, Invoice, IndicationsCountException, _SubmittableMeter
+from .mosenergosbyt import MosenergosbytException, ServiceType, MESElectricityMeter, BaseAccount, \
+    Invoice, IndicationsCountException, SubmittableMeter
 
 if TYPE_CHECKING:
     from types import MappingProxyType
@@ -147,7 +147,7 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
         if account_entity is None:
             account_entity = MESAccountSensor(account, account_name_format)
             new_accounts[account_code] = account_entity
-            tasks.append(account_entity.async_update())
+            tasks.append(hass.async_create_task(account_entity.async_update()))
         else:
             account_entity.account = account
             account_entity.async_schedule_update_ha_state(force_refresh=True)
@@ -177,7 +177,7 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
                     meter_entity = MESMeterSensor(meter, meter_name_format)
                     meter_entities[meter_code] = meter_entity
                     new_meters[meter_code] = meter_entity
-                    tasks.append(meter_entity.async_update())
+                    tasks.append(hass.async_create_task(meter_entity.async_update()))
 
                 else:
                     meter_entity.meter = meter
@@ -206,7 +206,7 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
                     invoice_entity = MESInvoiceSensor(invoice, invoice_name_format)
                     account_entity.invoice_entity = invoice_entity
                     new_invoices[invoice.invoice_id] = invoice_entity
-                    tasks.append(invoice_entity.async_update())
+                    tasks.append(hass.async_create_task(invoice_entity.async_update()))
 
                 else:
                     if account_entity.invoice_entity.invoice.invoice_id != invoice.invoice_id:

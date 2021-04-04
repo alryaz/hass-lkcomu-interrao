@@ -1,4 +1,12 @@
 """ Basic Mosenergosbyt API interaction. """
+__all__ = [
+    'BaseAccount',
+    'Provider',
+    'get_account_class',
+    'register_account_class',
+    'decorate_register_account_class',
+    'create_account_instance',
+]
 import asyncio
 import json
 import logging
@@ -9,7 +17,7 @@ from enum import IntEnum
 from functools import partial
 from hashlib import md5
 from types import MappingProxyType
-from typing import Optional, List, Dict, Union, Iterable, Any, Type, Set, TypeVar, Mapping
+from typing import Optional, List, Dict, Union, Iterable, Any, Type, Set, TypeVar, Mapping, Tuple, Callable
 from urllib import parse
 
 import aiohttp
@@ -30,17 +38,6 @@ OFFSET_START_TO_END = relativedelta(months=1, seconds=-1)
 
 
 T = TypeVar('T')
-
-
-def all_subclasses(cls: T) -> Set[T]:
-    """
-    Recursively find all subclasses of a given class.
-    Code source: https://stackoverflow.com/a/3862957
-    :param cls: Parent class
-    :return: Set of subclasses
-    """
-    return set(cls.__subclasses__()).union(
-        [s for c in cls.__subclasses__() for s in all_subclasses(c)])
 
 
 DEFAULT_USER_AGENT = (
@@ -90,19 +87,19 @@ class DateUtil:
         return [DateUtil.convert_date(v, _to, _none_now) for v in args]
 
 
-class _IntEnum(IntEnum):
+class _ListIntEnum(IntEnum):
     @classmethod
     def list(cls) -> List[int]:
         # noinspection PyTypeChecker
         return list(map(int, cls))
 
 
-class ServiceType(_IntEnum):
+class ServiceType(_ListIntEnum):
     ELECTRICITY = 1
     ELECTRICITY_TKO = 4
 
 
-class Provider(_IntEnum):
+class Provider(_ListIntEnum):
     MES = 1
     MOE = 2
     TMK_NRG = 3
@@ -119,7 +116,7 @@ class Provider(_IntEnum):
     KSG = 14
 
 
-provider_proxy_list = {
+PROVIDER_PROXY_LIST = {
     Provider.MES: "bytProxy",
     Provider.MOE: "smorodinaTransProxy",
     Provider.ORL: "orlBytProxy",
@@ -137,7 +134,7 @@ provider_proxy_list = {
 }
 
 
-class ResponseCodes(IntEnum):
+class ResponseCodes(_ListIntEnum):
     ERROR_NO_BUSINESS = 0
     SHOW_CAPTCHA = 114
     SHOW_CAPTCHA_PASSWORD_RESET = 127
@@ -156,11 +153,6 @@ class API:
     BASE_URL = "https://my.mosenergosbyt.ru"
     AUTH_URL = BASE_URL + "/auth"
     REQUEST_URL = BASE_URL + "/gate_lkcomu"
-
-    _supported_providers: Dict[Provider, Union[bool, List[ServiceType]]] = {
-        Provider.MES: True,
-        Provider.TKO: True,
-    }
 
     def __init__(self, username: str, password: str, user_agent: Optional[str] = None, timeout: int = 5):
         self.__username = username
@@ -291,38 +283,33 @@ class API:
 
         return True
 
-    async def get_accounts(self) -> Dict[str, '_BaseAccount']:
+    async def get_accounts(self) -> Dict[str, 'BaseAccount']:
         response = await self.request_sql('LSList')
-
-        supported_providers = self._supported_providers
-        # service_types_list = ServiceType.list()
-
+        
         accounts_dict = dict()
+        tasks = []
         for account_data in response['data']:
-            provider_supported = supported_providers.get(account_data['kd_provider'])
-            if provider_supported:
-                if provider_supported is True or account_data['kd_service_type'] in provider_supported:
-                    account = _BaseAccount.get_instance(
-                        account_data=account_data,
-                        api=self
-                    )
-                    await account.update_info()
+            try:
+                account_obj = create_account_instance(account_data, self)
+                accounts_dict[account_data['nn_ls']] = account_obj
+                tasks.append(asyncio.create_task(account_obj.update_info()))
 
-                    accounts_dict[account_data['nn_ls']] = account
+            except UnsupportedAccountException as e:
+                _LOGGER.error('Unsupported account encountered: %s', e)
+
+        await asyncio.wait(tasks)
 
         return accounts_dict
 
 
-class _BaseAccount:
+class BaseAccount(ABC):
     """ Base account for implementing provider accounts. """
-    provider_id = NotImplemented
-
     ACCOUNT_URL = "https://my.mosenergosbyt.ru/accounts"
 
     def __init__(self, account_data: Dict[str, Any], api: API):
         self._account_data: Dict[str, Any] = account_data
         self._account_info: Optional[Dict[str, Any]] = None
-        self._meter_objects: Optional[Dict[str, _BaseMeter]] = None
+        self._meter_objects: Optional[Dict[str, BaseMeter]] = None
         self.api: API = api
 
     async def update_info(self) -> None:
@@ -341,33 +328,9 @@ class _BaseAccount:
     def info(self) -> Optional[Mapping[str, Any]]:
         return MappingProxyType(self._account_info) if self._account_info else None
 
-    @staticmethod
-    def provider_classes() -> Dict[int, '_BaseAccount']:
-        return {subclass.provider_id: subclass
-                for subclass in all_subclasses(_BaseAccount)}
-
-    @classmethod
-    def get_instance(cls: Type['_BaseAccount'], account_data: Dict[str, Any], api: API) -> '_BaseAccount':
-        instance_provider_id = account_data['kd_provider']
-
-        if cls == _BaseAccount:
-            create_class = cls.provider_classes().get(instance_provider_id)
-            if create_class is None:
-                raise UnsupportedProviderException('Unsupported provider (%d, "%s")'
-                                                   % (instance_provider_id, account_data['nm_provider']))
-
-            # noinspection PyCallingNonCallable
-            return create_class(account_data, api)
-
-        if instance_provider_id != cls.provider_id:
-            raise UnsupportedProviderException('Unsupported provider (%d, "%s")'
-                                               % (instance_provider_id, account_data['nm_provider']))
-
-        return cls(account_data, api)
-
     # Properties
     @property
-    def meter_objects(self) -> Optional[Dict[str, '_BaseMeter']]:
+    def meter_objects(self) -> Optional[Dict[str, 'BaseMeter']]:
         return self._meter_objects
 
     @property
@@ -391,12 +354,18 @@ class _BaseAccount:
         return self._account_data['nm_provider']
 
     @property
-    def provider_type(self) -> Provider:
-        return Provider(self._account_data['kd_provider'])
+    def provider_type(self) -> Optional[Provider]:
+        try:
+            return Provider(int(self._account_data['kd_provider']))
+        except (KeyError, ValueError, TypeError):
+            return None
 
     @property
-    def service_type(self) -> ServiceType:
-        return ServiceType(self._account_data['kd_service_type'])
+    def service_type(self) -> Optional[ServiceType]:
+        try:
+            return ServiceType(int(self._account_data['kd_service_type']))
+        except (KeyError, ValueError, TypeError):
+            return None
 
     @property
     def service_name(self) -> str:
@@ -490,7 +459,7 @@ class _BaseAccount:
     async def _get_invoices(self, start: datetime, end: datetime) -> List['Invoice']:
         raise NotImplementedError
 
-    async def get_meters(self) -> Dict[str, '_BaseMeter']:
+    async def get_meters(self) -> Dict[str, 'BaseMeter']:
         raise NotImplementedError
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
@@ -500,10 +469,111 @@ class _BaseAccount:
         raise NotImplementedError
 
 
-class MESAccount(_BaseAccount):
-    """ Mosenergosbyt Account class """
-    provider_id = 1
+# Dictionary that holds all registered supported account types
+SUPPORTED_PROVIDERS: Dict[Tuple[Provider, Optional[ServiceType]], Type['BaseAccount']] = {}
 
+
+def get_account_class(provider_id: Union[Provider, int], service_type: Optional[Union[ServiceType, int]] = None, generic_fallback: bool = False) -> Optional[Type['BaseAccount']]:
+    """
+    Lookup account class based on provider and service type parameters.
+    """
+    if not isinstance(provider_id, Provider):
+        provider_id = Provider(provider_id)
+
+    if service_type is None:
+        return SUPPORTED_PROVIDERS.get((provider_id, None))
+    
+    if not isinstance(service_type, ServiceType):
+        try:
+            service_type = ServiceType(service_type)
+        except (KeyError, ValueError, TypeError):
+            raise ValueError('Invalid service type provided: %s' % (service_type,))
+    
+    account_cls = SUPPORTED_PROVIDERS.get((provider_id, service_type))
+
+    if generic_fallback and account_cls is None:
+        return get_account_class(provider_id=provider_id, service_type=None, generic_fallback=False)
+
+    return account_cls
+
+
+def register_account_class(account_cls: Type['BaseAccount'], provider_id: Union[Provider, int], service_type: Optional[Union[ServiceType, int]] = None, override: bool = False):
+    """Register account class with the support dictionary"""
+    if account_cls is BaseAccount:
+        raise ValueError('Cannot register base account')
+
+    if not isinstance(provider_id, Provider):
+        provider_id = Provider(provider_id)
+
+    if not (service_type is None or isinstance(service_type, ServiceType)):
+        service_type = ServiceType(service_type)
+
+    if not override:
+        existing_account_cls = get_account_class(provider_id=provider_id, service_type=service_type, generic_fallback=False)
+
+        if not (existing_account_cls is None or existing_account_cls is account_cls):
+            error_msg = f'Provider "{provider_id.name}" (ID: {provider_id.value}) with '
+
+            if service_type is None:
+                error_msg += 'generic service type'
+            else:
+                error_msg += f'service type "{service_type.name}" (ID: {service_type.value})'
+
+            error_msg += ' is already registered'
+            
+            raise ValueError(error_msg)
+        
+    SUPPORTED_PROVIDERS[(provider_id, service_type)] = account_cls
+
+
+def decorate_register_account_class(provider_id: Union[Provider, int], service_type: Optional[Union[ServiceType, int]] = None, override: bool = False) -> Callable[[Type['BaseAccount']], Type['BaseAccount']]:
+    """Decorator for `register_account_class` for use with BaseAccount (base account class) subclasses"""
+    def _internal(account_cls: Type['BaseAccount']) -> Type['BaseAccount']:
+        register_account_class(
+            account_cls=account_cls,
+            provider_id=provider_id,
+            service_type=service_type,
+            override=override
+        )
+        return account_cls
+
+    _internal.__doc__ = f"Decorator to register account class as supporting {provider_id} / {service_type}"
+
+    return _internal
+
+
+def create_account_instance(account_data: Dict[str, Any], api: API, generic_fallback: bool = True) -> 'BaseAccount':
+    provider_id = Provider(int(account_data['kd_provider']))
+
+    try:
+        service_type = ServiceType(int(account_data['kd_service_type'])) if 'kd_service_type' in account_data else None
+    except (KeyError, ValueError, TypeError):
+        service_type = None
+
+    account_cls = get_account_class(
+        provider_id=provider_id,
+        service_type=service_type,
+        generic_fallback=generic_fallback
+    )
+
+    if account_cls is None:
+        error_msg = f'Provider "{provider_id.name}" (ID: {provider_id.value}) with '
+
+        if service_type is None:
+            error_msg += 'generic service type'
+        else:
+            error_msg += f'service type "{service_type.name}" (ID: {service_type.value})'
+
+        error_msg += ' is not supported'
+        
+        raise ValueError(error_msg)
+    
+    return account_cls(account_data, api)
+
+
+@decorate_register_account_class(Provider.MES)
+class MESAccount(BaseAccount):
+    """ Mosenergosbyt Account class """
     # Connection
     async def lk_byt_proxy(self, proxy_query, data: Optional[Dict] = None):
         return await self.proxy_request('bytProxy', proxy_query, data)
@@ -643,10 +713,9 @@ class MESAccount(_BaseAccount):
         } for indication in response['data']]
 
 
-class MESTKOAccount(_BaseAccount):
+@decorate_register_account_class(Provider.TKO)
+class TKOAccount(BaseAccount):
     """ Mosenergosbyt + TKO account class """
-    provider_id = 6
-
     # Connection
     async def lk_trash_proxy(self, proxy_query: str, data: Optional[Dict] = None):
         return await self.proxy_request('trashProxy', proxy_query, data)
@@ -663,8 +732,8 @@ class MESTKOAccount(_BaseAccount):
             return 'day'
         return md5(lower_name.encode('utf-8')).hexdigest()[:6]
 
-    @staticmethod
-    def _generate_indications_from_charges(charges: List[Dict[str, Any]], with_calculations: bool = False) \
+    @classmethod
+    def _generate_indications_from_charges(cls, charges: List[Dict[str, Any]], with_calculations: bool = False) \
             -> Dict[str, Dict[str, Union[float, Dict[str, float]]]]:
         indications = {}
         for charge in charges:
@@ -686,7 +755,7 @@ class MESTKOAccount(_BaseAccount):
                     Invoice.TOTAL: charge['sm_total'],
                 }
 
-            indications[MESTKOAccount._generate_indication_id(charge['nm_service'])] = charge_dict
+            indications[cls._generate_indication_id(charge['nm_service'])] = charge_dict
 
         return indications
 
@@ -776,10 +845,10 @@ class MESTKOAccount(_BaseAccount):
         return indications[0] if indications else None
 
 
-class _BaseMeter(ABC):
+class BaseMeter(ABC):
     DataType = TypeVar('DataType')
 
-    def __init__(self, account: '_BaseAccount', data: DataType):
+    def __init__(self, account: 'BaseAccount', data: DataType):
         """
         Initializes Meter object
         :param account: Tied account
@@ -878,7 +947,7 @@ class _BaseMeter(ABC):
         raise NotImplementedError
 
 
-class _SubmittableMeter(_BaseMeter, ABC):
+class SubmittableMeter(BaseMeter, ABC):
     async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
                                  ignore_indications_check: bool = False) -> str:
         """
@@ -906,7 +975,7 @@ class _SubmittableMeter(_BaseMeter, ABC):
         raise NotImplementedError
 
 
-class MESElectricityMeter(_SubmittableMeter):
+class MESElectricityMeter(SubmittableMeter):
     """ Mosenergosbyt meter class """
 
     @property
@@ -1145,7 +1214,7 @@ class MESElectricityMeter(_SubmittableMeter):
         raise MosenergosbytException('Unknown error')
 
 
-class TKOIndicationMeter(_BaseMeter):
+class TKOIndicationMeter(BaseMeter):
     @property
     def submitted_indications(self) -> Optional[List[float]]:
         return None
@@ -1213,7 +1282,7 @@ class TKOIndicationMeter(_BaseMeter):
 
 
 class ChargeCalculation:
-    def __init__(self, meter: '_BaseMeter', indications: IndicationsType, charged: float, comment: str,
+    def __init__(self, meter: 'BaseMeter', indications: IndicationsType, charged: float, comment: str,
                  period: Optional[date] = None):
         self._period: date = DateUtil.month_start() if period is None else period
         self._meter = meter
@@ -1239,7 +1308,7 @@ class ChargeCalculation:
         return self._period
 
     @property
-    def meter(self) -> '_BaseMeter':
+    def meter(self) -> 'BaseMeter':
         return self._meter
 
     @property
@@ -1269,7 +1338,7 @@ class Invoice:
         BENEFITS = 'benefits'
         PAYMENTS = 'payments'
 
-    def __init__(self, account: '_BaseAccount', invoice_id: str, period: date, charges: Dict[str, Dict[str, Any]],
+    def __init__(self, account: 'BaseAccount', invoice_id: str, period: date, charges: Dict[str, Dict[str, Any]],
                  calculations: Optional[Dict[str, float]] = None):
         self._account = account
         self._invoice_id = invoice_id
@@ -1283,7 +1352,7 @@ class Invoice:
         return sum([c.get(self.ATTRS.CALCULATIONS, {}).get(attribute, 0) for c in self._charges.values()])
 
     @property
-    def account(self) -> '_BaseAccount':
+    def account(self) -> 'BaseAccount':
         return self._account
 
     @property
@@ -1343,9 +1412,13 @@ class IndicationsThresholdException(MosenergosbytException):
     pass
 
 
-class UnsupportedServiceException(MosenergosbytException):
+class UnsupportedAccountException(MosenergosbytException):
     pass
 
 
-class UnsupportedProviderException(MosenergosbytException):
+class UnsupportedServiceException(UnsupportedAccountException):
+    pass
+
+
+class UnsupportedProviderException(UnsupportedAccountException):
     pass

@@ -123,6 +123,11 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
             )
         )
 
+    if yaml_config:
+        _LOGGER.debug('YAML usernames: %s', '"' + '", "'.join(yaml_config.keys()) + '"')
+    else:
+        _LOGGER.debug('No configuration added from YAML')
+
     return True
 
 

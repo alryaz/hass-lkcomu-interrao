@@ -1,12 +1,4 @@
 """ Basic Mosenergosbyt API interaction. """
-__all__ = [
-    'BaseAccount',
-    'Provider',
-    'get_account_class',
-    'register_account_class',
-    'decorate_register_account_class',
-    'create_account_instance',
-]
 import asyncio
 import json
 import logging
@@ -17,7 +9,7 @@ from enum import IntEnum
 from functools import partial
 from hashlib import md5
 from types import MappingProxyType
-from typing import Optional, List, Dict, Union, Iterable, Any, Type, Set, TypeVar, Mapping, Tuple, Callable
+from typing import Optional, List, Dict, Union, Iterable, Any, Type, TypeVar, Mapping, Tuple, Callable
 from urllib import parse
 
 import aiohttp
@@ -95,8 +87,13 @@ class _ListIntEnum(IntEnum):
 
 
 class ServiceType(_ListIntEnum):
+    UNKNOWN_SERVICE_TYPE = -1
     ELECTRICITY = 1
     ELECTRICITY_TKO = 4
+
+    @classmethod
+    def _missing_(cls, value):
+        return ServiceType.UNKNOWN_SERVICE_TYPE
 
 
 class Provider(_ListIntEnum):
@@ -283,23 +280,23 @@ class API:
 
         return True
 
-    async def get_accounts(self) -> Dict[str, 'BaseAccount']:
+    async def get_accounts(self) -> List['BaseAccount']:
         response = await self.request_sql('LSList')
         
-        accounts_dict = dict()
+        accounts_list = []
         tasks = []
         for account_data in response['data']:
             try:
                 account_obj = create_account_instance(account_data, self)
-                accounts_dict[account_data['nn_ls']] = account_obj
                 tasks.append(asyncio.create_task(account_obj.update_info()))
+                accounts_list.append(account_obj)
 
             except UnsupportedAccountException as e:
                 _LOGGER.error('Unsupported account encountered: %s', e)
 
         await asyncio.wait(tasks)
 
-        return accounts_dict
+        return accounts_list
 
 
 class BaseAccount(ABC):
@@ -309,10 +306,10 @@ class BaseAccount(ABC):
     def __init__(self, account_data: Dict[str, Any], api: API):
         self._account_data: Dict[str, Any] = account_data
         self._account_info: Optional[Dict[str, Any]] = None
-        self._meter_objects: Optional[Dict[str, BaseMeter]] = None
+        self._meter_objects: Optional[List[BaseMeter]] = None
         self.api: API = api
 
-    async def update_info(self) -> None:
+    async def update_info(self) -> Union[None, type(NotImplemented)]:
         """
         Update additional account information
         :return:
@@ -330,8 +327,12 @@ class BaseAccount(ABC):
 
     # Properties
     @property
-    def meter_objects(self) -> Optional[Dict[str, 'BaseMeter']]:
-        return self._meter_objects
+    def meter_objects(self) -> List['BaseMeter']:
+        return self._meter_objects or []
+
+    @property
+    def meter_objects_dict(self) -> Dict[str, 'BaseMeter']:
+        return dict(map(lambda x: (x.meter_code, x), self.meter_objects))
 
     @property
     def service_id(self):
@@ -365,7 +366,7 @@ class BaseAccount(ABC):
         try:
             return ServiceType(int(self._account_data['kd_service_type']))
         except (KeyError, ValueError, TypeError):
-            return None
+            return ServiceType.UNKNOWN_SERVICE_TYPE
 
     @property
     def service_name(self) -> str:
@@ -382,13 +383,22 @@ class BaseAccount(ABC):
     # Base methods
     async def proxy_request(self, plugin: str, proxy_query: str, data: Optional[Dict] = None):
         data = {} if data is None else {**data}
-        data['vl_provider'] = self._account_data['vl_provider']
         data['proxyquery'] = proxy_query
+
+        return await self.direct_request(
+            plugin,
+            query=plugin,
+            data=data
+        )
+
+    async def direct_request(self, plugin: str, query: str, data: Optional[Dict] = None):
+        data = {} if data is None else {**data}
+        data['vl_provider'] = self._account_data['vl_provider']
         data['plugin'] = plugin
 
         return await self.api.request(
             action='sql',
-            query=plugin,
+            query=query,
             post_fields=data
         )
 
@@ -459,7 +469,7 @@ class BaseAccount(ABC):
     async def _get_invoices(self, start: datetime, end: datetime) -> List['Invoice']:
         raise NotImplementedError
 
-    async def get_meters(self) -> Dict[str, 'BaseMeter']:
+    async def get_meters(self) -> List['BaseMeter']:
         raise NotImplementedError
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
@@ -473,7 +483,11 @@ class BaseAccount(ABC):
 SUPPORTED_PROVIDERS: Dict[Tuple[Provider, Optional[ServiceType]], Type['BaseAccount']] = {}
 
 
-def get_account_class(provider_id: Union[Provider, int], service_type: Optional[Union[ServiceType, int]] = None, generic_fallback: bool = False) -> Optional[Type['BaseAccount']]:
+def get_account_class(
+        provider_id: Union[Provider, int],
+        service_type: Optional[Union[ServiceType, int]] = None,
+        generic_fallback: bool = False
+) -> Optional[Type['BaseAccount']]:
     """
     Lookup account class based on provider and service type parameters.
     """
@@ -497,7 +511,12 @@ def get_account_class(provider_id: Union[Provider, int], service_type: Optional[
     return account_cls
 
 
-def register_account_class(account_cls: Type['BaseAccount'], provider_id: Union[Provider, int], service_type: Optional[Union[ServiceType, int]] = None, override: bool = False):
+def register_account_class(
+        account_cls: Type['BaseAccount'],
+        provider_id: Union[Provider, int],
+        service_type: Optional[Union[ServiceType, int]] = None,
+        override: bool = False
+):
     """Register account class with the support dictionary"""
     if account_cls is BaseAccount:
         raise ValueError('Cannot register base account')
@@ -509,7 +528,11 @@ def register_account_class(account_cls: Type['BaseAccount'], provider_id: Union[
         service_type = ServiceType(service_type)
 
     if not override:
-        existing_account_cls = get_account_class(provider_id=provider_id, service_type=service_type, generic_fallback=False)
+        existing_account_cls = get_account_class(
+            provider_id=provider_id,
+            service_type=service_type,
+            generic_fallback=False
+        )
 
         if not (existing_account_cls is None or existing_account_cls is account_cls):
             error_msg = f'Provider "{provider_id.name}" (ID: {provider_id.value}) with '
@@ -526,7 +549,11 @@ def register_account_class(account_cls: Type['BaseAccount'], provider_id: Union[
     SUPPORTED_PROVIDERS[(provider_id, service_type)] = account_cls
 
 
-def decorate_register_account_class(provider_id: Union[Provider, int], service_type: Optional[Union[ServiceType, int]] = None, override: bool = False) -> Callable[[Type['BaseAccount']], Type['BaseAccount']]:
+def decorate_register_account_class(
+        provider_id: Union[Provider, int],
+        service_type: Optional[Union[ServiceType, int]] = None,
+        override: bool = False
+) -> Callable[[Type['BaseAccount']], Type['BaseAccount']]:
     """Decorator for `register_account_class` for use with BaseAccount (base account class) subclasses"""
     def _internal(account_cls: Type['BaseAccount']) -> Type['BaseAccount']:
         register_account_class(
@@ -583,40 +610,45 @@ class MESAccount(BaseAccount):
         response = await self.lk_byt_proxy('LSInfo')
         self._account_info = response['data'][0]
 
-    async def get_meters(self) -> Dict[str, 'MESElectricityMeter']:
+    async def get_meters(self) -> List['MESElectricityMeter']:
         response = await self.lk_byt_proxy('Meters')
 
         if self._meter_objects is None:
-            self._meter_objects = {
-                meter_data['nm_meter_num']: MESElectricityMeter(
+            self._meter_objects = [
+                MESElectricityMeter(
                     account=self,
                     data=meter_data
                 )
                 for meter_data in response['data']
-            }
+            ]
             return self._meter_objects
 
-        keep_meter_objects = set()
+        keep_meter_objects = []
+
+        existing_meter_objects = dict({
+            meter.meter_code: i
+            for i, meter in enumerate(self._meter_objects)
+        })
 
         for meter_data in response['data']:
             meter_code = meter_data['nm_meter_num']
-            if meter_code in self._meter_objects:
-                meter = self._meter_objects[meter_code]
-                meter.data = meter_data
-                keep_meter_objects.add(meter_code)
+            meter_index = existing_meter_objects.get(meter_code)
 
-            else:
+            if meter_index is None:
                 meter = MESElectricityMeter(
                     account=self,
                     data=meter_data
                 )
-                self._meter_objects[meter_code] = meter
-                keep_meter_objects.add(meter_code)
 
-        for meter_code in self._meter_objects.keys() - keep_meter_objects:
-            del self._meter_objects[meter_code]
+            else:
+                meter = self._meter_objects[meter_code]
+                meter.data = meter_data
 
-        return self._meter_objects
+            keep_meter_objects.append(meter)
+
+        self._meter_objects = keep_meter_objects
+
+        return keep_meter_objects
 
     async def _get_invoices(self, start: datetime, end: datetime) -> List['Invoice']:
         response = await self.lk_byt_proxy('Invoice', {
@@ -818,20 +850,20 @@ class TKOAccount(BaseAccount):
             for invoice in invoice_group.get('child', [])
         ]
 
-    async def get_meters(self) -> Dict[str, 'TKOIndicationMeter']:
+    async def get_meters(self) -> List['TKOIndicationMeter']:
         indications = await self.get_last_indications()
 
         if self._meter_objects is None:
-            meter_objects = {self.account_code: TKOIndicationMeter(self, indications)}
+            meter_objects = [TKOIndicationMeter(self, indications)]
             self._meter_objects = meter_objects
             return meter_objects
 
-        self._meter_objects[self.account_code].data = indications
+        self._meter_objects[0].data = indications
         return self._meter_objects
 
     async def get_current_balance(self) -> float:
         response = await self.lk_trash_proxy('AbonentCurrentBalance')
-        return -response['data'][0]['sm_balance']
+        return -(response['data'][0]['sm_balance'])
 
     async def get_remaining_days(self) -> Optional[int]:
         # @TODO: approximate using bill data
@@ -843,6 +875,126 @@ class TKOAccount(BaseAccount):
         previous_month_start = DateUtil.month_start(True) - relativedelta(months=1)
         indications = await self._get_indications(previous_month_start, now)
         return indications[0] if indications else None
+
+
+@decorate_register_account_class(Provider.MOE)
+class MOEAccount(MESAccount):
+    async def lk_smorodina_trans_proxy(self, proxy_query, data: Optional[Dict] = None):
+        return await self.proxy_request('smorodinaTransProxy', proxy_query, data)
+
+    async def get_current_balance(self) -> float:
+        response = await self.lk_smorodina_trans_proxy('AbonentCurrentBalance')
+        return -(response['data'][0]['sm_balance'])
+
+    async def get_meters(self) -> List['MOEGenericMeter']:
+        response = await self.lk_smorodina_trans_proxy('AbonentEquipment')
+
+        if self._meter_objects is None:
+            self._meter_objects = [
+                MOEGenericMeter(
+                    account=self,
+                    data=meter_data
+                )
+                for meter_data in response['data']
+            ]
+            return self._meter_objects
+
+        keep_meter_objects = []
+
+        existing_meter_objects = dict({
+            meter.meter_code: i
+            for i, meter in enumerate(self._meter_objects)
+        })
+
+        for meter_data in response['data']:
+            meter_code = meter_data['nm_counter']
+            meter_index = existing_meter_objects.get(meter_code)
+
+            if meter_index is None:
+                meter = MOEGenericMeter(
+                    account=self,
+                    data=meter_data
+                )
+
+            else:
+                meter = self._meter_objects[meter_code]
+                meter.data = meter_data
+
+            keep_meter_objects.append(meter)
+
+        self._meter_objects = keep_meter_objects
+
+        return keep_meter_objects
+
+    @staticmethod
+    def _generate_indication_id(name: str):
+        lower_name = name.lower()
+        if 'тко' in lower_name:
+            return 'tko'
+        elif 'ночь' in lower_name:
+            return 'night'
+        elif 'день' in lower_name:
+            return 'day'
+        return md5(lower_name.encode('utf-8')).hexdigest()[:6]
+
+    @classmethod
+    def _generate_indications_from_charges(cls, charges: List[Dict[str, Any]], with_calculations: bool = False) \
+            -> Dict[str, Dict[str, Union[float, Dict[str, float]]]]:
+        indications = {}
+        for charge in charges:
+            charge_dict = {
+                Invoice.ATTRS.NAME: charge['nm_service'],
+                Invoice.ATTRS.UNIT: charge['nm_measure_unit'],
+                Invoice.ATTRS.VALUE: charge['vl_charged_volume'],
+                Invoice.ATTRS.COST: charge['vl_tariff'],
+            }
+
+            if with_calculations:
+                charge_dict[Invoice.ATTRS.CALCULATIONS] = {
+                    Invoice.ADJUSTMENTS: charge['sm_recalculations'],
+                    Invoice.INITIAL_BALANCE: charge['sm_start'],
+                    Invoice.COSTS.CHARGED: charge['sm_charged'],
+                    Invoice.COSTS.PENALTY: charge['sm_penalty'],
+                    Invoice.DEDUCTIONS.BENEFITS: charge['sm_benefits'],
+                    Invoice.DEDUCTIONS.PAYMENTS: charge['sm_payed'],
+                    Invoice.TOTAL: charge['sm_total'],
+                }
+
+            indications[cls._generate_indication_id(charge['nm_service'])] = charge_dict
+
+        return indications
+
+    async def _get_invoices(self, start: datetime, end: datetime) -> List['Invoice']:
+        response = await self.lk_smorodina_trans_proxy('AbonentChargeDetail', {
+            'dt_period_start': start.isoformat(),
+            'dt_period_end': end.isoformat(),
+            'kd_tp_mode': 1
+        })
+
+        return [
+            Invoice(
+                account=self,
+                invoice_id=invoice['vl_report_uuid'],
+                period=datetime.fromisoformat(invoice_group['dt_period']).date(),
+                calculations={
+                    Invoice.INITIAL_BALANCE: invoice['sm_start'],
+                    Invoice.ADJUSTMENTS: invoice['sm_recalculations'],
+                    Invoice.COSTS.CHARGED: invoice['sm_charged'],
+                    Invoice.COSTS.INSURANCE: invoice['sm_insurance'],
+                    Invoice.COSTS.PENALTY: invoice['sm_penalty'],
+                    Invoice.COSTS.SERVICE: invoice['sm_tovkgo'],
+                    Invoice.DEDUCTIONS.BENEFITS: invoice['sm_benefits'],
+                    Invoice.DEDUCTIONS.PAYMENTS: invoice['sm_payed'],
+                    Invoice.TOTAL: invoice['sm_total'],
+                    Invoice.TOTAL_NO_INSURANCE: invoice['sm_total_without_ins']
+                },
+                charges=self._generate_indications_from_charges(invoice['child'], with_calculations=True)
+            )
+            for invoice_group in response['data']
+            for invoice in invoice_group.get('child', [])
+        ]
+
+    update_info = BaseAccount.update_info
 
 
 class BaseMeter(ABC):
@@ -911,36 +1063,36 @@ class BaseMeter(ABC):
         )}
 
     @property
-    def today_indications(self) -> List[float]:
+    def today_indications(self) -> List[Optional[float]]:
         raise NotImplementedError
 
     @property
-    def last_indications(self) -> Optional[List[float]]:
+    def last_indications(self) -> List[Optional[float]]:
         raise NotImplementedError
 
     @property
-    def submitted_indications(self) -> Optional[List[float]]:
+    def submitted_indications(self) -> List[Optional[float]]:
         raise NotImplementedError
 
     @property
-    def invoice_indications(self) -> Optional[List[float]]:
+    def invoice_indications(self) -> List[Optional[float]]:
         return self.last_indications
 
     @property
     def period_start_date(self) -> date:
-        raise NotImplementedError
+        return DateUtil.month_start()
 
     @property
     def period_end_date(self) -> date:
-        raise NotImplementedError
+        return DateUtil.month_end()
 
     @property
-    def remaining_submit_days(self) -> Optional[int]:
+    def remaining_submit_days(self) -> int:
         """
         Calculate remaining days to submit indications
         :return:
         """
-        raise NotImplementedError
+        return (self.period_end_date - DateUtil.moscow_today(False)).days + 1
 
     @property
     def current_status(self) -> Optional[str]:
@@ -1070,8 +1222,9 @@ class MESElectricityMeter(SubmittableMeter):
         return [self._data.get('vl_%s_last_ind' % i) for i in self.indications_ids]
 
     @property
-    def last_indications_date(self) -> date:
-        return datetime.fromisoformat(self._data['dt_last_ind']).date()
+    def last_indications_date(self) -> Optional[date]:
+        if 'dt_last_ind' in self._data:
+            return datetime.fromisoformat(self._data['dt_last_ind']).date()
 
     @property
     def invoice_indications(self) -> List[float]:
@@ -1216,8 +1369,8 @@ class MESElectricityMeter(SubmittableMeter):
 
 class TKOIndicationMeter(BaseMeter):
     @property
-    def submitted_indications(self) -> Optional[List[float]]:
-        return None
+    def submitted_indications(self) -> List[Optional[float]]:
+        return [None] * len(self._data.values())
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1252,14 +1405,6 @@ class TKOIndicationMeter(BaseMeter):
         raise MosenergosbytException('Operation not supported for MES+TKO meters')
 
     @property
-    def period_start_date(self) -> date:
-        return DateUtil.month_start()
-
-    @property
-    def period_end_date(self) -> date:
-        return (DateUtil.month_start(True) + relativedelta(months=1, days=-1)).date()
-
-    @property
     def remaining_submit_days(self) -> Optional[int]:
         return None
 
@@ -1279,6 +1424,185 @@ class TKOIndicationMeter(BaseMeter):
     @property
     def total_cost(self) -> float:
         return self._data['total']
+
+
+class MOEGenericMeter(SubmittableMeter):
+    """ Mosenergosbyt meter class """
+
+    @property
+    def indications_ids(self) -> List[str]:
+        return ['indication']
+
+    @property
+    def meter_code(self) -> str:
+        return self._data['nm_counter']
+
+    @property
+    def indications_units(self) -> List[str]:
+        return [self.indications_unit]
+
+    @property
+    def indications_unit(self) -> str:
+        return self._data['nm_measure_unit']
+
+    @property
+    def indications_names(self) -> List[str]:
+        return [self.indications_name]
+
+    @property
+    def indications_name(self) -> str:
+        return self._data['nm_service']
+
+    @property
+    def submitted_indications(self) -> List[Optional[float]]:
+        return [self.submitted_indication]
+
+    @property
+    def submitted_indication(self) -> Optional[float]:
+        last_indications_date = self.last_indications_date
+        if last_indications_date is not None:
+            if self.period_end_date >= last_indications_date >= self.period_start_date:
+                return self.last_indication
+            return self.today_indication
+        return None
+
+    @property
+    def today_indications(self) -> List[Optional[float]]:
+        """
+        Today indications accessor.
+        Skims meter data for indications submitted today and prepares data.
+        :return:
+        """
+        if self.last_indications_date == DateUtil.moscow_today():
+            return self.last_indications
+        return [None]
+
+    @property
+    def today_indication(self) -> Optional[float]:
+        return self.today_indications[0]
+
+    @property
+    def last_indications(self) -> List[Optional[float]]:
+        """
+        Last indications accessor.
+        Returns data as list for indications submitted last.
+        :return:
+        """
+        return [self.last_indication]
+
+    @property
+    def last_indication(self) -> Optional[float]:
+        return self._data.get('vl_last_indication')
+
+    @property
+    def last_indications_date(self) -> Optional[date]:
+        return datetime.fromisoformat(self._data['dt_last_indication']).date()
+
+    @property
+    def invoice_indications(self) -> List[Optional[float]]:
+        return [None]
+
+    @property
+    def current_status(self):
+        return str(self._data['pr_state'])
+
+    # Submission algorithms
+    def _check_submission_date(self, submission_date: Optional[date] = None) -> None:
+        """
+        Checks whether submission date is within bounds.
+        :param submission_date: (optional) Submission date object (checks today in Moscow TZ by default)
+        :raises MosenergosbytException: Submission date is out of current period
+        :return:
+        """
+        if submission_date is None:
+            now = datetime.now(tz=tz.gettz('Europe/Moscow'))
+            submission_date = now.date()
+
+        if not (self.period_start_date <= submission_date <= self.period_end_date):
+            raise MosenergosbytException('Out of period (from %s to %s) submission date (%s)'
+                                         % (self.period_start_date, self.period_end_date, submission_date))
+
+    async def _prepare_indications_request(self, indication: Union[int, float], ignore_indications_check: bool = False):
+        converter = float if await self._account.get_indications_is_float() else int
+        new_value = converter(indication)
+
+        request_dict = {
+            'dt_indication': datetime.now().isoformat(),
+            'id_counter': self._data['id_counter'],
+            'id_counter_zn': self._data['id_counter_zn'],
+            'id_source': 15418,  # @TODO: request this value dynamically?
+            'pr_skip_anomaly': 0,
+            'pr_skip_err': 0,
+            'vl_indication': new_value
+        }
+
+        if not ignore_indications_check:
+            old_value = self.last_indication or 0
+            if old_value > new_value:
+                raise IndicationsThresholdException(
+                    'Indication (%d) is lower than submitted indication (%d)' % (new_value, old_value)
+                )
+
+            elif old_value == new_value:
+                raise IndicationsThresholdException(
+                    'Indication (%d) is equal to submitted indication (%d)' % (new_value, old_value)
+                )
+
+        return request_dict
+
+    async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                 ignore_indications_check: bool = False) -> str:
+        """
+        Submit indications to Mosenergosbyt.
+        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
+        submissions. Override these safeguards at your own risk.
+        :param indications: Indications list / dictionary
+        :param ignore_period_check: Ignore out-of-period safeguard
+        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
+        :return: Status comment
+        """
+        request_dict = await self._prepare_indications_request(
+            next(iter(indications)),
+            ignore_indications_check=ignore_indications_check
+        )
+
+        self._account: MOEAccount
+        result = await self._account.direct_request('propagateMoeInd', 'AbonentSaveIndication', request_dict)
+
+        result_data = result.get('data')
+        if result_data:
+            data = result_data[0]
+
+            if result.get('success') and data['kd_result'] == ResponseCodes.RESPONSE_RESULT:
+                return data['nm_result']
+
+            if data['kd_result'] == 2:
+                raise IndicationsCountException('Sent invalid indications count')
+
+        error_code = result_data.get('err_code')
+        error_text = result_data.get('err_text')
+
+        _LOGGER.debug('Indications saving response data: %s' % result)
+
+        if not error_code and not error_text:
+            raise MosenergosbytException('Unknown error')
+
+        raise MosenergosbytException(
+            'API returned error (code: %s): %s' % error_code or 'unknown', error_text or 'no description'
+        )
+
+    async def calculate_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                    ignore_indications_check: bool = False) -> 'ChargeCalculation':
+        """
+        Calculate indications charges with Mosenergosbyt.
+        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
+        submissions. Override these safeguards at your own risk.
+        :param indications: Indications list / dictionary
+        :param ignore_period_check: Ignore out-of-period safeguard
+        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
+        :return: Charge calculation object
+        """
+        raise MosenergosbytException('Indications calculations has not yet been implemented')
 
 
 class ChargeCalculation:
@@ -1320,6 +1644,7 @@ class Invoice:
     INITIAL_BALANCE = 'initial_balance'
     ADJUSTMENTS = 'adjustments'
     TOTAL = 'total'
+    TOTAL_NO_INSURANCE = 'total_no_insurance'
 
     class ATTRS:
         NAME = 'name'
@@ -1366,6 +1691,14 @@ class Invoice:
     @property
     def total(self) -> float:
         return self._attribute_from_calculations(self.TOTAL)
+
+    @property
+    def total_no_insurance(self) -> float:
+        if self._calculations is not None:
+            if self.TOTAL_NO_INSURANCE in self._calculations:
+                return self._calculations[self.TOTAL_NO_INSURANCE]
+            return self.total - self.insurance
+        return 0
 
     @property
     def charged(self) -> float:

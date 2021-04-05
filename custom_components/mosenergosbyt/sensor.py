@@ -6,7 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from functools import partial
-from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union, Any
+from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union, Any, List
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -23,7 +23,7 @@ from . import DATA_CONFIG, CONF_ACCOUNTS, DEFAULT_SCAN_INTERVAL, DATA_API_OBJECT
     CONF_LOGIN_TIMEOUT, DEFAULT_LOGIN_TIMEOUT, DEFAULT_METER_NAME_FORMAT, CONF_METER_NAME, CONF_ACCOUNT_NAME, \
     DEFAULT_ACCOUNT_NAME_FORMAT, DOMAIN, CONF_INVOICES, DEFAULT_INVOICE_NAME_FORMAT, CONF_INVOICE_NAME
 from .mosenergosbyt import MosenergosbytException, ServiceType, MESElectricityMeter, BaseAccount, \
-    Invoice, IndicationsCountException, SubmittableMeter
+    Invoice, IndicationsCountException, SubmittableMeter, BaseMeter
 
 if TYPE_CHECKING:
     from types import MappingProxyType
@@ -121,17 +121,23 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
         _LOGGER.error('Error fetching accounts: %s' % e)
         return False
 
-    created_entities = hass.data.setdefault(DATA_ENTITIES, {}).get(entry_id)
-    if created_entities is None:
-        created_entities = {}
-        hass.data[DATA_ENTITIES][entry_id] = created_entities
-
-    new_accounts = {}
-    new_meters = {}
-    new_invoices = {}
-
+    data_entities = hass.data.setdefault(DATA_ENTITIES, {})
+    created_entities: Optional[List['MESAccountSensor']] = data_entities.get(entry_id, [])
+    new_created_entities = []
+    new_accounts = []
+    new_meters = []
+    new_invoices = []
     tasks = []
-    for account_code, account in accounts.items():
+
+    if created_entities:
+        fetched_account_codes = list(map(lambda x: x.account_code, accounts))
+        for account_entity in created_entities:
+            if account_entity.account.account_code not in fetched_account_codes:
+                tasks.append(hass.async_create_task(account_entity.async_remove()))
+
+    for account in accounts:
+        account_code = account.account_code
+        
         _LOGGER.debug('Setting up account %s for username %s' % (account_code, username))
         
         if use_meter_filter:
@@ -143,48 +149,62 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
         else:
             meter_filter = True
 
-        account_entity = created_entities.get(account_code)
+        account_entity = None
+        for entity in created_entities:
+            if entity.account.account_code == account_code:
+                account_entity = entity
+                break
+
         if account_entity is None:
             account_entity = MESAccountSensor(account, account_name_format)
-            new_accounts[account_code] = account_entity
+            new_accounts.append(account_entity)
             tasks.append(hass.async_create_task(account_entity.async_update()))
         else:
             account_entity.account = account
             account_entity.async_schedule_update_ha_state(force_refresh=True)
+
+        new_created_entities.append(account_entity)
 
         try:
             # Process meters
             meters = await account.get_meters()
 
             if meter_filter is not True:
-                meters = {k: v for k, v in meters if k in meter_filter}
+                meters = filter(lambda x: x.meter_code in meter_filter, meters)
 
-            if account_entity.meter_entities is None:
-                meter_entities = {}
-                account_entity.meter_entities = meter_entities
+            meter_codes = list(map(lambda x: x.meter_code, meters))
+            meter_entities = account_entity.meter_entities or []
+            new_meter_entities = []
 
-            else:
-                meter_entities = account_entity.meter_entities
+            if meter_entities:
+                for meter_entity in meter_entities:
+                    if meter_entity.meter.meter_code not in meter_codes:
+                        tasks.append(hass.async_create_task(meter_entity.async_remove()))
+                    else:
+                        new_meter_entities.append(meter_entity)
 
-                for meter_code in meter_entities.keys() - meters.keys():
-                    tasks.append(hass.async_create_task(meter_entities[meter_code].async_remove()))
-                    del meter_entities[meter_code]
-
-            for meter_code, meter in meters.items():
-                meter_entity = meter_entities.get(meter_code)
+            for meter in meters:
+                meter_entity = None
+                for existing_meter_entity in meter_entities:
+                    if existing_meter_entity.meter.meter_code == meter.meter_code:
+                        meter_entity = existing_meter_entity
+                        break
 
                 if meter_entity is None:
                     meter_entity = MESMeterSensor(meter, meter_name_format)
-                    meter_entities[meter_code] = meter_entity
-                    new_meters[meter_code] = meter_entity
+                    new_meters.append(meter_entity)
                     tasks.append(hass.async_create_task(meter_entity.async_update()))
 
                 else:
                     meter_entity.meter = meter
                     meter_entity.async_schedule_update_ha_state(force_refresh=True)
 
+                new_meter_entities.append(meter_entity)
+
+            account_entity.meter_entities = new_meter_entities
+
         except MosenergosbytException as e:
-            _LOGGER.error('Error retrieving meters: %s' % e)
+            _LOGGER.error('Error retrieving meters: %s', e)
             # we can still continue adding invoices
 
         # Check invoice filter
@@ -205,7 +225,7 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
                 if account_entity.invoice_entity is None:
                     invoice_entity = MESInvoiceSensor(invoice, invoice_name_format)
                     account_entity.invoice_entity = invoice_entity
-                    new_invoices[invoice.invoice_id] = invoice_entity
+                    new_invoices.append(invoice_entity)
                     tasks.append(hass.async_create_task(invoice_entity.async_update()))
 
                 else:
@@ -213,26 +233,26 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
                         account_entity.invoice_entity.invoice = invoice
                         account_entity.async_schedule_update_ha_state(force_refresh=True)
         except MosenergosbytException as e:
-            _LOGGER.error('Error fetching invoices: %s' % e)
+            _LOGGER.error('Error fetching invoices: %s', e)
 
     if tasks:
         await asyncio.wait(tasks)
 
     if new_accounts:
-        async_add_entities(new_accounts.values())
+        async_add_entities(new_accounts)
 
     if new_meters:
-        async_add_entities(new_meters.values())
+        async_add_entities(new_meters)
 
     if new_invoices:
-        async_add_entities(new_invoices.values())
+        async_add_entities(new_invoices)
 
-    created_entities.update(new_accounts)
+    data_entities[entry_id] = new_created_entities
 
-    _LOGGER.debug('Successful update on entry %s' % entry_id)
-    _LOGGER.debug('New meters: %s' % new_meters)
-    _LOGGER.debug('New accounts: %s' % new_accounts)
-    _LOGGER.debug('New invoices: %s' % new_invoices)
+    _LOGGER.debug('Successful update on entry %s', entry_id)
+    _LOGGER.debug('New meters: %s', new_meters)
+    _LOGGER.debug('New accounts: %s', new_accounts)
+    _LOGGER.debug('New invoices: %s', new_invoices)
 
     return len(new_accounts), len(new_meters), len(new_invoices)
 
@@ -248,7 +268,7 @@ async def async_register_services(hass: HomeAssistantType):
         return meter.meter and meter.meter.meter_code == meter_code
 
     def _find_meter_entity(call_data: 'MappingProxyType') -> Tuple[str, Optional['MESMeterSensor']]:
-        entry_accounts: Dict[str, Dict[str, 'MESAccountSensor']] = hass.data.get(DATA_ENTITIES, {})
+        entry_accounts: Dict[str, List['MESAccountSensor']] = hass.data.get(DATA_ENTITIES, {})
 
         if ATTR_ENTITY_ID in call_data:
             attr = ATTR_ENTITY_ID
@@ -258,8 +278,8 @@ async def async_register_services(hass: HomeAssistantType):
             checker = partial(_check_meter_code, call_data[attr])
 
         for entry_id, account_sensors in entry_accounts.items():
-            for account_sensor in account_sensors.values():
-                for meter in account_sensor.meter_entities.values():
+            for account_sensor in account_sensors:
+                for meter in account_sensor.meter_entities:
                     if checker(meter):
                         return entry_id, meter
 
@@ -313,7 +333,7 @@ async def async_register_services(hass: HomeAssistantType):
             event_data[ATTR_ENTITY_ID] = meter_sensor.entity_id
             event_data[ATTR_METER_CODE] = meter_code
 
-            if not isinstance(meter_sensor.meter, _SubmittableMeter):
+            if not isinstance(meter_sensor.meter, SubmittableMeter):
                 event_data[ATTR_COMMENT] = 'Счётчик \'%s\' не поддерживает передачу показаний' % meter_code
 
             else:
@@ -395,7 +415,7 @@ async def async_register_services(hass: HomeAssistantType):
         else:
             meter_code = meter_sensor.meter.meter_code
 
-            if not isinstance(meter_sensor.meter, _SubmittableMeter):
+            if not isinstance(meter_sensor.meter, SubmittableMeter):
                 event_data[ATTR_COMMENT] = 'Счётчик \'%s\' не поддерживает подсчёт показаний' % meter_code
 
             else:
@@ -557,13 +577,13 @@ class MESEntity(Entity):
 
 class MESAccountSensor(MESEntity):
     """The class for this sensor"""
-    def __init__(self, account: '_BaseAccount', name_format: str):
+    def __init__(self, account: 'BaseAccount', name_format: str):
         super().__init__()
 
         self._name_format = name_format
         self._icon = 'mdi:flash-circle'
-        self.account: '_BaseAccount' = account
-        self.meter_entities: Optional[Dict[str, 'MESMeterSensor']] = None
+        self.account: 'BaseAccount' = account
+        self.meter_entities: Optional[List['MESMeterSensor']] = None
         self.invoice_entity: Optional['Invoice'] = None
 
     async def async_update(self):
@@ -634,7 +654,7 @@ class MESAccountSensor(MESEntity):
 
 class MESMeterSensor(MESEntity):
     """The class for this sensor"""
-    def __init__(self, meter: '_BaseMeter', name_format: str):
+    def __init__(self, meter: 'BaseMeter', name_format: str):
         super().__init__()
 
         self._icon = 'mdi:counter'
@@ -684,7 +704,8 @@ class MESMeterSensor(MESEntity):
                     attributes['last_value_%s' % key] = indication[Invoice.ATTRS.VALUE]
 
                     for attribute in [Invoice.ATTRS.NAME, Invoice.ATTRS.COST, Invoice.ATTRS.UNIT]:
-                        attributes['last_%s_%s' % (attribute, key)] = indication[attribute]
+                        if attribute in indication:
+                            attributes['last_%s_%s' % (attribute, key)] = indication[attribute]
 
         self._state = STATE_OK if meter_status is None else meter_status
         self._attributes = attributes
@@ -697,7 +718,7 @@ class MESMeterSensor(MESEntity):
     @property
     def unique_id(self):
         """Return the unique ID of the sensor"""
-        return 'meter_' + str(self.meter.meter_code)
+        return 'meter_' + self.meter.meter_code
 
 
 class MESInvoiceSensor(MESEntity):

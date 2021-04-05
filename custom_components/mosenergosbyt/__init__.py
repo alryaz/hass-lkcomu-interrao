@@ -165,7 +165,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
         accounts = await api_object.get_accounts()
 
         if CONF_ACCOUNTS in user_cfg and user_cfg[CONF_ACCOUNTS]:
-            accounts = {k: v for k, v in accounts.items() if k in user_cfg[CONF_ACCOUNTS]}
+            accounts = {v.account_code: v for v in accounts if v.account_code in user_cfg[CONF_ACCOUNTS]}
 
     except MosenergosbytException as e:
         _LOGGER.error('Error authenticating with user "%s": %s' % (username, str(e)))

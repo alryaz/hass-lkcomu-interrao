@@ -994,6 +994,22 @@ class MOEAccount(MESAccount):
             for invoice in invoice_group.get('child', [])
         ]
 
+    async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
+        response = await self.lk_smorodina_trans_proxy('AbonentPays', {
+            'dt_st': start.isoformat(),
+            'dt_en': end.isoformat()
+        })
+
+        return [
+            {
+                'date': datetime.fromisoformat(payment['dt_pay']),
+                'amount': payment['sm_pay'],
+                'status': payment['nm_pay_state'],
+            }
+            for payment in response['data']
+            if payment
+        ]
+
     update_info = BaseAccount.update_info
 
 

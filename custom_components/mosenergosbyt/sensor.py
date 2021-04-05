@@ -615,11 +615,13 @@ class MESAccountSensor(MESEntity):
                     remaining_days = await self.account.get_remaining_days()
 
             except MosenergosbytException as e:
-                message = 'Retrieving data from Mosenergosbyt failed: %s' % e
+                raise
+                exc_name = e.__class__.__name__.split('.')[-1]
+                message = 'Retrieving data from Mosenergosbyt failed: [%s] %s'
                 if _LOGGER.level == logging.DEBUG:
-                    _LOGGER.exception(message)
+                    _LOGGER.exception(message, exc_name, e)
                 else:
-                    _LOGGER.error(message)
+                    _LOGGER.error(message, exc_name, e)
                 return False
 
             attributes.update({

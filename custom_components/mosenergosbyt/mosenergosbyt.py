@@ -9,7 +9,7 @@ from enum import IntEnum
 from functools import partial
 from hashlib import md5
 from types import MappingProxyType
-from typing import Optional, List, Dict, Union, Iterable, Any, Type, TypeVar, Mapping, Tuple, Callable, NamedTuple, \
+from typing import Optional, List, Dict, Union, Any, Type, TypeVar, Mapping, Tuple, Callable, NamedTuple, \
     Collection
 from urllib import parse
 
@@ -363,7 +363,7 @@ class BaseAccount(ABC):
             return None
 
     @property
-    def service_type(self) -> Optional[ServiceType]:
+    def service_type(self) -> ServiceType:
         try:
             return ServiceType(int(self._account_data['kd_service_type']))
         except (KeyError, ValueError, TypeError):
@@ -379,7 +379,11 @@ class BaseAccount(ABC):
 
     @property
     def lock_reason(self) -> Optional[str]:
-        return self._account_data['nm_lock_msg']
+        return self._account_data.get('nm_lock_msg')
+
+    @property
+    def description(self) -> Optional[str]:
+        return self._account_data.get('nm_ls_description')
 
     # Base methods
     async def proxy_request(self, plugin: str, proxy_query: str, data: Optional[Dict] = None):
@@ -1595,18 +1599,8 @@ class MOEGenericMeter(SubmittableMeter):
             'API returned error (code: %s): %s' % error_code or 'unknown', error_text or 'no description'
         )
 
-    async def calculate_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                                    ignore_indications_check: bool = False) -> 'ChargeCalculation':
-        """
-        Calculate indications charges with Mosenergosbyt.
-        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
-        submissions. Override these safeguards at your own risk.
-        :param indications: Indications list / dictionary
-        :param ignore_period_check: Ignore out-of-period safeguard
-        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
-        :return: Charge calculation object
-        """
-        raise MosenergosbytException('Indications calculations has not yet been implemented')
+    async def _calculate_indications(self, indications: IndicationsType) -> 'ChargeCalculation':
+        raise MosenergosbytException('indications calculation not supported with this provider')
 
 
 class KSGElectricityMeter(SubmittableMeter):

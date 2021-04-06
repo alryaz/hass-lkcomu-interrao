@@ -13,7 +13,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import persistent_notification
 from homeassistant.const import CONF_USERNAME, CONF_SCAN_INTERVAL, ATTR_ENTITY_ID, STATE_OK, \
-    STATE_LOCKED, STATE_UNKNOWN, ATTR_ATTRIBUTION
+    STATE_LOCKED, STATE_UNKNOWN, ATTR_ATTRIBUTION, ATTR_NAME
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
@@ -22,8 +22,8 @@ from homeassistant.helpers.typing import HomeAssistantType, ConfigType, ServiceC
 from . import DATA_CONFIG, CONF_ACCOUNTS, DEFAULT_SCAN_INTERVAL, DATA_API_OBJECTS, DATA_ENTITIES, DATA_UPDATERS, \
     CONF_LOGIN_TIMEOUT, DEFAULT_LOGIN_TIMEOUT, DEFAULT_METER_NAME_FORMAT, CONF_METER_NAME, CONF_ACCOUNT_NAME, \
     DEFAULT_ACCOUNT_NAME_FORMAT, DOMAIN, CONF_INVOICES, DEFAULT_INVOICE_NAME_FORMAT, CONF_INVOICE_NAME
-from .mosenergosbyt import MosenergosbytException, ServiceType, MESElectricityMeter, BaseAccount, \
-    Invoice, IndicationsCountException, SubmittableMeter, BaseMeter
+from .mosenergosbyt import MosenergosbytException, ServiceType, BaseAccount, \
+    Invoice, IndicationsCountException, SubmittableMeter, BaseMeter, MOEGenericMeter
 
 if TYPE_CHECKING:
     from types import MappingProxyType
@@ -588,7 +588,7 @@ class MESAccountSensor(MESEntity):
 
     async def async_update(self):
         """The update method"""
-        remaining_days = None
+        remaining_days: Optional[Tuple[bool, int]] = None
 
         attributes = {
             'account_code': self.account.account_code,
@@ -610,12 +610,9 @@ class MESAccountSensor(MESEntity):
                 _LOGGER.debug('Updating account %s' % self)
                 last_payment = (await self.account.get_last_payment()) or {}
                 current_balance = await self.account.get_current_balance()
-
-                if self.account.service_type == ServiceType.ELECTRICITY:
-                    remaining_days = await self.account.get_remaining_days()
+                remaining_days = await self.account.get_remaining_days()
 
             except MosenergosbytException as e:
-                raise
                 exc_name = e.__class__.__name__.split('.')[-1]
                 message = 'Retrieving data from Mosenergosbyt failed: [%s] %s'
                 if _LOGGER.level == logging.DEBUG:
@@ -633,7 +630,8 @@ class MESAccountSensor(MESEntity):
             })
 
             if remaining_days is not None:
-                attributes['remaining_days'] = remaining_days
+                attributes['submit_period_active'] = remaining_days[0]
+                attributes['remaining_days'] = remaining_days[1]
 
             self._state = current_balance
             self._unit = 'руб.'
@@ -654,62 +652,106 @@ class MESAccountSensor(MESEntity):
         return 'ls_' + str(self.account.service_id)
 
 
+ATTR_COST = 'cost'
+ATTR_UNIT = 'unit'
+ATTR_DESCRIPTION = 'description'
+ATTR_SUBMIT_PERIOD_START = 'submit_period_start'
+ATTR_SUBMIT_PERIOD_END = 'submit_period_end'
+ATTR_ACCOUNT_CODE = 'account_code'
+ATTR_REMAINING_DAYS = 'remaining_days'
+ATTR_MODEL = 'model'
+ATTR_INSTALL_DATE = 'install_date'
+
+
 class MESMeterSensor(MESEntity):
     """The class for this sensor"""
     def __init__(self, meter: 'BaseMeter', name_format: str):
         super().__init__()
 
-        self._icon = 'mdi:counter'
         self._name_format = name_format
         self.meter = meter
+
+    @property
+    def icon(self):
+        if isinstance(self.meter, MOEGenericMeter):
+            return 'mdi:gauge'
+        return 'mdi:counter'
 
     async def async_update(self):
         """The update method"""
         attributes = {
-            'meter_code': self.meter.meter_code,
-            'account_code': self.meter.account_code,
-            'remaining_days': self.meter.remaining_submit_days,
+            ATTR_METER_CODE: self.meter.meter_code,
+            ATTR_ACCOUNT_CODE: self.meter.account_code,
         }
 
+        # Model attribute
+        model = self.meter.model
+        if model:
+            attributes[ATTR_MODEL] = model
+
+        # Submit period attributes
+        try:
+            submit_period_start = self.meter.period_start_date
+            if submit_period_start:
+                attributes[ATTR_SUBMIT_PERIOD_START] = submit_period_start.isoformat()
+        except (MosenergosbytException, NotImplementedError):
+            pass
+
+        try:
+            submit_period_end = self.meter.period_end_date
+            if submit_period_end:
+                attributes[ATTR_SUBMIT_PERIOD_END] = submit_period_end.isoformat()
+        except (MosenergosbytException, NotImplementedError):
+            pass
+
+        # Installation date attribute
+        install_date = self.meter.install_date
+        if install_date:
+            attributes[ATTR_INSTALL_DATE] = self.meter.install_date.isoformat()
+
+        # Tariff attributes
+        tariffs = self.meter.tariffs
+        if tariffs:
+            for tariff in tariffs:
+                for key, value in {
+                    ATTR_NAME: tariff.name,
+                    ATTR_COST: tariff.cost,
+                    ATTR_DESCRIPTION: tariff.description,
+                    ATTR_UNIT: tariff.unit
+                }.items():
+                    if value is not None:
+                        attributes['tariff_%s_%s' % (tariff.id, key)] = value
+
+            # Add last indications (if available)
+            try:
+                last_indications = self.meter.last_indications
+            except (MosenergosbytException, NotImplementedError) as e:
+                _LOGGER.debug('Did not add last indications: %s', e)
+            else:
+                for tariff, value in zip(tariffs, last_indications):
+                    attributes['last_value_%s' % tariff.id] = value
+
+            # Add submitted indications (if available)
+            try:
+                submitted_indications = self.meter.submitted_indications
+            except (MosenergosbytException, NotImplementedError) as e:
+                _LOGGER.debug('Did not add submitted indications: %s', e)
+            else:
+                for tariff, value in zip(tariffs, submitted_indications):
+                    attributes['submitted_value_%s' % tariff.id] = value
+
+            # Add today's indications (if available)
+            try:
+                today_indications = self.meter.today_indications
+            except (MosenergosbytException, NotImplementedError) as e:
+                _LOGGER.debug('Did not add today indications: %s', e)
+            else:
+                for tariff, value in zip(tariffs, today_indications):
+                    attributes['today_value_%s' % tariff.id] = value
+
         meter_status = self.meter.current_status
-
-        if isinstance(self.meter, MESElectricityMeter):
-            attributes['install_date'] = self.meter.install_date.isoformat()
-            attributes['submit_period_start'] = self.meter.period_start_date.isoformat()
-            attributes['submit_period_end'] = self.meter.period_end_date.isoformat()
-
-            tariff_ids = self.meter.indications_ids
-
-            tariff_costs = self.meter.tariff_costs
-            for i, value in zip(tariff_ids, tariff_costs):
-                attributes['cost_per_kwh_%s' % i] = value
-
-            last_indications = self.meter.last_indications
-            if last_indications:
-                for i, value in zip(tariff_ids, self.meter.last_indications):
-                    attributes['last_value_%s' % i] = value
-
-            submitted_indications = self.meter.submitted_indications
-            if submitted_indications:
-                for i, value in zip(tariff_ids, self.meter.submitted_indications):
-                    attributes['submitted_value_%s' % i] = value
-
-            today_indications = self.meter.today_indications
-            if today_indications:
-                for i, value in zip(tariff_ids, self.meter.today_indications):
-                    attributes['today_value_%s' % i] = value
-
-        else:
-            last_indications_dict = self.meter.last_indications_dict
-            if last_indications_dict:
-                for key, indication in last_indications_dict.items():
-                    attributes['last_value_%s' % key] = indication[Invoice.ATTRS.VALUE]
-
-                    for attribute in [Invoice.ATTRS.NAME, Invoice.ATTRS.COST, Invoice.ATTRS.UNIT]:
-                        if attribute in indication:
-                            attributes['last_%s_%s' % (attribute, key)] = indication[attribute]
-
         self._state = STATE_OK if meter_status is None else meter_status
+
         self._attributes = attributes
 
     @property

@@ -2,6 +2,7 @@
 import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, List
+from urllib.parse import quote
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -13,7 +14,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 
 if TYPE_CHECKING:
-    from .mosenergosbyt import API
+    from .mosenergosbyt import API, Provider, ServiceType
     from .sensor import MESAccountSensor
 
 _LOGGER = logging.getLogger(__name__)
@@ -162,7 +163,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
 
         await api_object.login()
 
-        accounts = await api_object.get_accounts()
+        accounts, unsupported_accounts = await api_object.get_accounts(return_unsupported_accounts=True)
 
         if CONF_ACCOUNTS in user_cfg and user_cfg[CONF_ACCOUNTS]:
             accounts = {v.account_code: v for v in accounts if v.account_code in user_cfg[CONF_ACCOUNTS]}
@@ -171,8 +172,40 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
         _LOGGER.error('Error authenticating with user "%s": %s' % (username, str(e)))
         return False
 
+    if unsupported_accounts:
+        from .mosenergosbyt import Provider, ServiceType
+
+        singular = len(unsupported_accounts) == 1
+        message = f"Интеграция Мосэнергосбыт столкнулась с данными об " \
+                  f"аккаунт{'е' if singular else 'ах'}, " \
+                  f"которы{'й' if singular else 'е'} она не поддерживает.\n\n" \
+                  f"Пожалуйста, свяжитесь с разработчиком, чтобы добавить поддержку " \
+                  f"следующ{'его' if singular else 'их'} аккаунт{'а' if singular else 'ов'}:"
+
+        for x in unsupported_accounts:
+            service_type_id = int(x.get('kd_service_type', -1))
+            service_type = ServiceType(service_type_id)
+            provider_id = int(x.get('kd_provider', -1))
+            provider = Provider(provider_id)
+
+            github_issue_title = f'Поддержка аккаунта: _{provider.name} ({provider_id})_'
+            github_issue_body = f'Прошу внедрить поддержку аккаунта типа ' \
+                                f'_{provider.name}_ (`kd_provider == {provider_id}`).'
+            github_issue_url = f'https://github.com/alryaz/hass-mosenergosbyt/issues/new' \
+                               f'?body={quote(github_issue_body)}&title={quote(github_issue_title)}'
+            message += f"\n" \
+                       f"- **Номер л/с:** `{x.get('nn_ls', 'неизвестный')}`\n" \
+                       f"  **Тип:** `{provider.name} ({provider_id}) / {service_type.name} ({service_type_id})`\n" \
+                       f"  **GitHub:** [Создать Issue]({github_issue_url})"
+
+        hass.components.persistent_notification.async_create(
+            message,
+            title=f"Мосэнергосбыт: Поддержка аккаунтов ({username})",
+            notification_id=f"mosenergosbyt_unsupported_{username}",
+        )
+
     if not accounts:
-        _LOGGER.warning('No accounts found under username "%s"' % username)
+        _LOGGER.warning('No supported accounts found under username "%s"', username)
         return False
 
     hass.data.setdefault(DATA_API_OBJECTS, {})[config_entry.entry_id] = api_object

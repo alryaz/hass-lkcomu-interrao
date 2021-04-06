@@ -9,7 +9,8 @@ from enum import IntEnum
 from functools import partial
 from hashlib import md5
 from types import MappingProxyType
-from typing import Optional, List, Dict, Union, Iterable, Any, Type, TypeVar, Mapping, Tuple, Callable
+from typing import Optional, List, Dict, Union, Iterable, Any, Type, TypeVar, Mapping, Tuple, Callable, NamedTuple, \
+    Collection
 from urllib import parse
 
 import aiohttp
@@ -18,7 +19,7 @@ from dateutil.tz import tz
 
 _LOGGER = logging.getLogger(__name__)
 
-IndicationsType = Iterable[Union[int, float]]
+IndicationsType = Collection[Union[int, float]]
 PaymentsList = List[Dict[str, Union[str, int, datetime]]]
 InvoiceData = Dict[str, Any]
 InvoiceList = List[InvoiceData]
@@ -391,6 +392,9 @@ class BaseAccount(ABC):
             data=data
         )
 
+    async def lk_byt_proxy(self, proxy_query, data: Optional[Dict] = None):
+        return await self.proxy_request('bytProxy', proxy_query, data)
+
     async def direct_request(self, plugin: str, query: str, data: Optional[Dict] = None):
         data = {} if data is None else {**data}
         data['vl_provider'] = self._account_data['vl_provider']
@@ -459,6 +463,194 @@ class BaseAccount(ABC):
         start, end = DateUtil.convert_date_arguments(start, end, _to=datetime)
         return await self._get_payments(start, end)
 
+    # Common methods
+    async def _common_proxy_indications(
+            self,
+            start: datetime,
+            end: datetime,
+            plugin: str,
+            proxy_query: str = 'Indications'
+    ) -> List[Dict]:
+        response = await self.proxy_request(
+            plugin=plugin,
+            proxy_query=proxy_query,
+            data={
+                'dt_st': start.isoformat(),
+                'dt_en': end.isoformat()
+            }
+        )
+
+        return [
+            {
+                'date': datetime.fromisoformat(indication['dt_indication']),
+                '_taken_by': indication['nm_take'],
+                '_source': indication['nm_indication_take'],
+                'meters': {
+                    k[-2:]: v
+                    for k, v in indication.items()
+                    if k[:-1] == 'vl_t'
+                }
+            }
+            for indication in response['data']
+        ]
+
+    async def _common_proxy_invoices(
+            self,
+            start: datetime,
+            end: datetime,
+            plugin: str,
+            proxy_query: str = 'Invoice'
+    ) -> List['Invoice']:
+        response = await self.proxy_request(
+            plugin=plugin,
+            proxy_query=proxy_query,
+            data={
+                'dt_st': start.isoformat(),
+                'dt_en': end.isoformat(),
+            }
+        )
+
+        invoices = []
+        for invoice in response['data']:
+            charges = {}
+            for i, charge in enumerate(invoice['data_detail'], start=1):
+                charge_part_iter = iter(charge)
+
+                charge_dict = {}
+
+                try:
+                    head_part = next(charge_part_iter)
+                    charge_dict['name'] = head_part['nm_value']
+                    charge_dict['total'] = head_part['vl_value']
+
+                    value_part = next(charge_part_iter)
+                    charge_dict['unit'] = value_part['nm_mu']
+                    charge_dict['value'] = value_part['vl_value']
+
+                    tariff_part = next(charge_part_iter)
+                    charge_dict['cost'] = tariff_part['vl_value']
+
+                except StopIteration:
+                    raise MosenergosbytException('Invoice (%s) data incomplete', invoice['id_korr']) from invoice
+
+                charges['t%d' % i] = charge_dict
+
+            calculations = {}
+            for section in invoice['data_common']:
+                section_name = section['nm_value']
+                value = section['vl_value']
+                if section_name.startswith('Итого'):
+                    calculations[Invoice.TOTAL] = value
+                elif 'начислено' in section_name:
+                    calculations[Invoice.COSTS.CHARGED] = value
+                elif 'долж' in section_name:
+                    calculations[Invoice.INITIAL_BALANCE] = value
+                elif 'поступ' in section_name:
+                    calculations[Invoice.DEDUCTIONS.PAYMENTS] = value
+
+            invoices.append(
+                Invoice(
+                    account=self,
+                    invoice_id=str(invoice['id_korr']),
+                    period=datetime.fromisoformat(invoice['dt_period']).date(),
+                    calculations=calculations,
+                    charges=charges
+                )
+            )
+
+        return invoices
+
+    @classmethod
+    def _common_generate_indications_from_charges(cls, charges: List[Dict[str, Any]], with_calculations: bool = False) \
+            -> Dict[str, Dict[str, Union[float, Dict[str, float]]]]:
+        indications = {}
+        for charge in charges:
+            charge_dict = {
+                Invoice.ATTRS.NAME: charge['nm_service'],
+                Invoice.ATTRS.UNIT: charge['nm_measure_unit'],
+                Invoice.ATTRS.VALUE: charge['vl_charged_volume'],
+                Invoice.ATTRS.COST: charge['vl_tariff'],
+            }
+
+            if with_calculations:
+                charge_dict[Invoice.ATTRS.CALCULATIONS] = {
+                    Invoice.ADJUSTMENTS: charge['sm_recalculations'],
+                    Invoice.INITIAL_BALANCE: charge['sm_start'],
+                    Invoice.COSTS.CHARGED: charge['sm_charged'],
+                    Invoice.COSTS.PENALTY: charge['sm_penalty'],
+                    Invoice.DEDUCTIONS.BENEFITS: charge['sm_benefits'],
+                    Invoice.DEDUCTIONS.PAYMENTS: charge['sm_payed'],
+                    Invoice.TOTAL: charge['sm_total'],
+                }
+
+            indications[cls._common_generate_indication_id(charge['nm_service'])] = charge_dict
+
+        return indications
+
+    @staticmethod
+    def _common_generate_indication_id(name: str):
+        lower_name = name.lower()
+        if 'тко' in lower_name:
+            return 'tko'
+        elif 'ночь' in lower_name:
+            return 'night'
+        elif 'день' in lower_name:
+            return 'day'
+        return md5(lower_name.encode('utf-8')).hexdigest()[:6]
+
+    async def _common_proxy_charge_details(
+            self,
+            start: datetime,
+            end: datetime,
+            plugin: str,
+            proxy_query: str = 'AbonentChargeDetail'
+    ) -> List['Invoice']:
+        response = await self.proxy_request(
+            plugin=plugin,
+            proxy_query=proxy_query,
+            data={
+                'dt_period_start': start.isoformat(),
+                'dt_period_end': end.isoformat(),
+                'kd_tp_mode': 1
+            }
+        )
+
+        return [
+            Invoice(
+                account=self,
+                invoice_id=invoice['vl_report_uuid'],
+                period=datetime.fromisoformat(invoice_group['dt_period']).date(),
+                calculations={
+                    Invoice.INITIAL_BALANCE: invoice['sm_start'],
+                    Invoice.ADJUSTMENTS: invoice['sm_recalculations'],
+                    Invoice.COSTS.CHARGED: invoice['sm_charged'],
+                    Invoice.COSTS.INSURANCE: invoice['sm_insurance'],
+                    Invoice.COSTS.PENALTY: invoice['sm_penalty'],
+                    Invoice.COSTS.SERVICE: invoice['sm_tovkgo'],
+                    Invoice.DEDUCTIONS.BENEFITS: invoice['sm_benefits'],
+                    Invoice.DEDUCTIONS.PAYMENTS: invoice['sm_payed'],
+                    Invoice.TOTAL: invoice['sm_total'],
+                },
+                charges=self._common_generate_indications_from_charges(invoice['child'], with_calculations=True)
+            )
+            for invoice_group in response['data']
+            for invoice in invoice_group.get('child', [])
+        ]
+
+    async def _common_proxy_remaining_days(
+            self,
+            plugin: str,
+            proxy_query: str = 'IndicationCounter'
+    ) -> Optional[Tuple[bool, int]]:
+        response = await self.proxy_request(plugin=plugin, proxy_query=proxy_query)
+        data = response.get('data', [])
+        if data:
+            data_first = data[0]
+            if isinstance(data_first, Mapping):
+                return bool(data_first.get('pr_ind_avail')), max(0, int(data_first.get('nn_days', 0)))
+
+        return None
+
     # Methods to override
     async def get_current_balance(self) -> float:
         raise NotImplementedError
@@ -475,7 +667,7 @@ class BaseAccount(ABC):
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
         raise NotImplementedError
 
-    async def get_remaining_days(self) -> Optional[int]:
+    async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
         raise NotImplementedError
 
 
@@ -601,10 +793,6 @@ def create_account_instance(account_data: Dict[str, Any], api: API, generic_fall
 @decorate_register_account_class(Provider.MES)
 class MESAccount(BaseAccount):
     """ Mosenergosbyt Account class """
-    # Connection
-    async def lk_byt_proxy(self, proxy_query, data: Optional[Dict] = None):
-        return await self.proxy_request('bytProxy', proxy_query, data)
-
     # Base implementation
     async def update_info(self) -> None:
         response = await self.lk_byt_proxy('LSInfo')
@@ -651,57 +839,7 @@ class MESAccount(BaseAccount):
         return keep_meter_objects
 
     async def _get_invoices(self, start: datetime, end: datetime) -> List['Invoice']:
-        response = await self.lk_byt_proxy('Invoice', {
-            'dt_st': start.isoformat(),
-            'dt_en': end.isoformat(),
-        })
-
-        invoices = []
-        for invoice in response['data']:
-            charges = {}
-            for i, charge in enumerate(invoice['data_detail'], start=1):
-                charge_part_iter = iter(charge)
-
-                charge_dict = {}
-
-                try:
-                    head_part = next(charge_part_iter)
-                    charge_dict['name'] = head_part['nm_value']
-                    charge_dict['total'] = head_part['vl_value']
-
-                    value_part = next(charge_part_iter)
-                    charge_dict['unit'] = value_part['nm_mu']
-                    charge_dict['value'] = value_part['vl_value']
-
-                    tariff_part = next(charge_part_iter)
-                    charge_dict['cost'] = tariff_part['vl_value']
-
-                except StopIteration:
-                    raise MosenergosbytException('Invoice (%s) data incomplete' % invoice['id_korr']) from invoice
-
-                charges['t%d' % i] = charge_dict
-
-            calculations = {}
-            for section in invoice['data_common']:
-                section_name = section['nm_value']
-                value = section['vl_value']
-                if section_name.startswith('Итого'):
-                    calculations[Invoice.TOTAL] = value
-                elif 'начислено' in section_name:
-                    calculations[Invoice.COSTS.CHARGED] = value
-                elif 'долж' in section_name:
-                    calculations[Invoice.INITIAL_BALANCE] = value
-                elif 'поступ' in section_name:
-                    calculations[Invoice.DEDUCTIONS.PAYMENTS] = value
-
-            invoices.append(Invoice(
-                account=self,
-                invoice_id=str(invoice['id_korr']),
-                period=datetime.fromisoformat(invoice['dt_period']).date(),
-                calculations=calculations,
-                charges=charges))
-
-        return invoices
+        return await self._common_proxy_invoices(start, end, 'bytProxy')
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
         response = await self.lk_byt_proxy('Pays', {
@@ -723,103 +861,24 @@ class MESAccount(BaseAccount):
         response = await self.lk_byt_proxy('CurrentBalance')
         return response['data'][0]['vl_balance']
 
-    async def get_remaining_days(self) -> int:
-        response = await self.lk_byt_proxy('IndicationCounter')
-        return max(0, response['data'][0]['nn_days'])
+    async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
+        return await self._common_proxy_remaining_days('bytProxy')
 
     async def _get_indications(self, start: datetime, end: datetime) -> IndicationsList:
-        response = await self.lk_byt_proxy('Indications', {
-            'dt_st': start.isoformat(),
-            'dt_en': end.isoformat()
-        })
-
-        return [{
-            'date': datetime.fromisoformat(indication['dt_indication']),
-            '_taken_by': indication['nm_take'],
-            '_source': indication['nm_indication_take'],
-            'meters': {
-                k[-2:]: v
-                for k, v in indication.items()
-                if k[:-1] == 'vl_t'
-            }
-        } for indication in response['data']]
+        return await self._common_proxy_indications(start, end, 'bytProxy')
 
 
 @decorate_register_account_class(Provider.TKO)
 class TKOAccount(BaseAccount):
     """ Mosenergosbyt + TKO account class """
+
     # Connection
     async def lk_trash_proxy(self, proxy_query: str, data: Optional[Dict] = None):
         return await self.proxy_request('trashProxy', proxy_query, data)
 
-    # Helper methods
-    @staticmethod
-    def _generate_indication_id(name: str):
-        lower_name = name.lower()
-        if 'тко' in lower_name:
-            return 'tko'
-        elif 'ночь' in lower_name:
-            return 'night'
-        elif 'день' in lower_name:
-            return 'day'
-        return md5(lower_name.encode('utf-8')).hexdigest()[:6]
-
-    @classmethod
-    def _generate_indications_from_charges(cls, charges: List[Dict[str, Any]], with_calculations: bool = False) \
-            -> Dict[str, Dict[str, Union[float, Dict[str, float]]]]:
-        indications = {}
-        for charge in charges:
-            charge_dict = {
-                Invoice.ATTRS.NAME: charge['nm_service'],
-                Invoice.ATTRS.UNIT: charge['nm_measure_unit'],
-                Invoice.ATTRS.VALUE: charge['vl_charged_volume'],
-                Invoice.ATTRS.COST: charge['vl_tariff'],
-            }
-
-            if with_calculations:
-                charge_dict[Invoice.ATTRS.CALCULATIONS] = {
-                    Invoice.ADJUSTMENTS: charge['sm_recalculations'],
-                    Invoice.INITIAL_BALANCE: charge['sm_start'],
-                    Invoice.COSTS.CHARGED: charge['sm_charged'],
-                    Invoice.COSTS.PENALTY: charge['sm_penalty'],
-                    Invoice.DEDUCTIONS.BENEFITS: charge['sm_benefits'],
-                    Invoice.DEDUCTIONS.PAYMENTS: charge['sm_payed'],
-                    Invoice.TOTAL: charge['sm_total'],
-                }
-
-            indications[cls._generate_indication_id(charge['nm_service'])] = charge_dict
-
-        return indications
-
     # Base implementation
     async def _get_invoices(self, start: datetime, end: datetime) -> List['Invoice']:
-        response = await self.lk_trash_proxy('AbonentChargeDetail', {
-            'dt_period_start': start.isoformat(),
-            'dt_period_end': end.isoformat(),
-            'kd_tp_mode': 1
-        })
-
-        return [
-            Invoice(
-                account=self,
-                invoice_id=invoice['vl_report_uuid'],
-                period=datetime.fromisoformat(invoice_group['dt_period']).date(),
-                calculations={
-                    Invoice.INITIAL_BALANCE: invoice['sm_start'],
-                    Invoice.ADJUSTMENTS: invoice['sm_recalculations'],
-                    Invoice.COSTS.CHARGED: invoice['sm_charged'],
-                    Invoice.COSTS.INSURANCE: invoice['sm_insurance'],
-                    Invoice.COSTS.PENALTY: invoice['sm_penalty'],
-                    Invoice.COSTS.SERVICE: invoice['sm_tovkgo'],
-                    Invoice.DEDUCTIONS.BENEFITS: invoice['sm_benefits'],
-                    Invoice.DEDUCTIONS.PAYMENTS: invoice['sm_payed'],
-                    Invoice.TOTAL: invoice['sm_total'],
-                },
-                charges=self._generate_indications_from_charges(invoice['child'], with_calculations=True)
-            )
-            for invoice_group in response['data']
-            for invoice in invoice_group.get('child', [])
-        ]
+        return await self._common_proxy_charge_details(start, end, 'trashProxy')
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
         response = await self.lk_trash_proxy('AbonentPays', {
@@ -845,7 +904,7 @@ class TKOAccount(BaseAccount):
         })
 
         return [
-            self._generate_indications_from_charges(invoice['child'], with_calculations=False)
+            self._common_generate_indications_from_charges(invoice['child'], with_calculations=False)
             for invoice_group in response.get('data', [])
             for invoice in invoice_group.get('child', [])
         ]
@@ -865,7 +924,7 @@ class TKOAccount(BaseAccount):
         response = await self.lk_trash_proxy('AbonentCurrentBalance')
         return -(response['data'][0]['sm_balance'])
 
-    async def get_remaining_days(self) -> Optional[int]:
+    async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
         # @TODO: approximate using bill data
         return None
 
@@ -926,73 +985,8 @@ class MOEAccount(MESAccount):
 
         return keep_meter_objects
 
-    @staticmethod
-    def _generate_indication_id(name: str):
-        lower_name = name.lower()
-        if 'тко' in lower_name:
-            return 'tko'
-        elif 'ночь' in lower_name:
-            return 'night'
-        elif 'день' in lower_name:
-            return 'day'
-        return md5(lower_name.encode('utf-8')).hexdigest()[:6]
-
-    @classmethod
-    def _generate_indications_from_charges(cls, charges: List[Dict[str, Any]], with_calculations: bool = False) \
-            -> Dict[str, Dict[str, Union[float, Dict[str, float]]]]:
-        indications = {}
-        for charge in charges:
-            charge_dict = {
-                Invoice.ATTRS.NAME: charge['nm_service'],
-                Invoice.ATTRS.UNIT: charge['nm_measure_unit'],
-                Invoice.ATTRS.VALUE: charge['vl_charged_volume'],
-                Invoice.ATTRS.COST: charge['vl_tariff'],
-            }
-
-            if with_calculations:
-                charge_dict[Invoice.ATTRS.CALCULATIONS] = {
-                    Invoice.ADJUSTMENTS: charge['sm_recalculations'],
-                    Invoice.INITIAL_BALANCE: charge['sm_start'],
-                    Invoice.COSTS.CHARGED: charge['sm_charged'],
-                    Invoice.COSTS.PENALTY: charge['sm_penalty'],
-                    Invoice.DEDUCTIONS.BENEFITS: charge['sm_benefits'],
-                    Invoice.DEDUCTIONS.PAYMENTS: charge['sm_payed'],
-                    Invoice.TOTAL: charge['sm_total'],
-                }
-
-            indications[cls._generate_indication_id(charge['nm_service'])] = charge_dict
-
-        return indications
-
     async def _get_invoices(self, start: datetime, end: datetime) -> List['Invoice']:
-        response = await self.lk_smorodina_trans_proxy('AbonentChargeDetail', {
-            'dt_period_start': start.isoformat(),
-            'dt_period_end': end.isoformat(),
-            'kd_tp_mode': 1
-        })
-
-        return [
-            Invoice(
-                account=self,
-                invoice_id=invoice['vl_report_uuid'],
-                period=datetime.fromisoformat(invoice_group['dt_period']).date(),
-                calculations={
-                    Invoice.INITIAL_BALANCE: invoice['sm_start'],
-                    Invoice.ADJUSTMENTS: invoice['sm_recalculations'],
-                    Invoice.COSTS.CHARGED: invoice['sm_charged'],
-                    Invoice.COSTS.INSURANCE: invoice['sm_insurance'],
-                    Invoice.COSTS.PENALTY: invoice['sm_penalty'],
-                    Invoice.COSTS.SERVICE: invoice['sm_tovkgo'],
-                    Invoice.DEDUCTIONS.BENEFITS: invoice['sm_benefits'],
-                    Invoice.DEDUCTIONS.PAYMENTS: invoice['sm_payed'],
-                    Invoice.TOTAL: invoice['sm_total'],
-                    Invoice.TOTAL_NO_INSURANCE: invoice['sm_total_without_ins']
-                },
-                charges=self._generate_indications_from_charges(invoice['child'], with_calculations=True)
-            )
-            for invoice_group in response['data']
-            for invoice in invoice_group.get('child', [])
-        ]
+        return await self._common_proxy_charge_details(start, end, 'smorodinaTransProxy')
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
         response = await self.lk_smorodina_trans_proxy('AbonentPays', {
@@ -1011,6 +1005,83 @@ class MOEAccount(MESAccount):
         ]
 
     update_info = BaseAccount.update_info
+
+
+@decorate_register_account_class(Provider.KSG)
+class KSGAccount(BaseAccount):
+    # Connection
+    async def lk_ksg_proxy(self, proxy_query, data: Optional[Dict] = None):
+        return await self.proxy_request('ksgProxy', proxy_query, data)
+
+    # Base implementation
+    async def update_info(self) -> None:
+        response = await self.lk_ksg_proxy('LSInfo')
+        self._account_info = response['data'][0]
+
+    async def get_meters(self) -> List['KSGElectricityMeter']:
+        # @TODO: partially redundant calls
+        await self.update_info()
+        indications = await self.get_last_indications()
+
+        keep_meter_objects = []
+
+        if self._meter_objects:
+            meter_code = self._account_info['nm_meter'].strip()
+            keep_meter_objects = []
+            for meter_object in self._meter_objects:
+                if meter_object.meter_code == meter_code:
+                    keep_meter_objects.append(meter_object)
+
+        if keep_meter_objects:
+            for meter_object in keep_meter_objects:
+                meter_object.data = indications
+        else:
+            new_meter = KSGElectricityMeter(
+                account=self,
+                data=indications,
+            )
+            keep_meter_objects.append(new_meter)
+
+        self._meter_objects = keep_meter_objects
+
+        return self._meter_objects
+
+    async def _get_invoices(self, start: datetime, end: datetime) -> List['Invoice']:
+        return await self._common_proxy_invoices(start, end, 'ksgProxy')
+
+    async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
+        response = await self.lk_ksg_proxy('Pays', {
+            'dt_st': start.isoformat(),
+            'dt_en': end.isoformat()
+        })
+
+        return [
+            {
+                'date': datetime.fromisoformat(payment['dt_pay']),
+                'amount': payment['sm_pay'],
+                'status': payment['nm_status'],
+            }
+            for payment in response['data']
+            if payment
+        ]
+
+    async def get_current_balance(self) -> float:
+        response = await self.lk_ksg_proxy('CurrentBalance')
+        return response['data'][0]['vl_balance']
+
+    async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
+        return await self._common_proxy_remaining_days('ksgProxy')
+
+    async def _get_indications(self, start: datetime, end: datetime) -> IndicationsList:
+        return await self._common_proxy_indications(start, end, 'ksgProxy')
+
+
+class Tariff(NamedTuple):
+    id: str
+    name: Optional[str]
+    unit: Optional[str]
+    description: Optional[str]
+    cost: Optional[float]
 
 
 class BaseMeter(ABC):
@@ -1054,29 +1125,47 @@ class BaseMeter(ABC):
         raise NotImplementedError
 
     @property
-    def indications_units(self) -> List[str]:
-        raise NotImplementedError
+    def model(self) -> Optional[str]:
+        """
+        Meter model shortcut accessor.
+        :return: Meter model string
+        """
+        return None
 
     @property
-    def indications_names(self) -> List[str]:
-        raise NotImplementedError
+    def install_date(self) -> Optional[date]:
+        return None
 
     @property
-    def indications_ids(self) -> List[str]:
-        raise NotImplementedError
+    def tariffs(self) -> List[Tariff]:
+        info = self._account.info
+
+        return [
+            Tariff(
+                id=tariff_id,
+                name=info.get('nm_' + tariff_id),
+                description=info.get('nm_' + tariff_id + '_description'),
+                cost=info.get('vl_' + tariff_id + '_tariff'),
+                unit='кВт*ч'
+            )
+            for tariff_id in self.tariff_ids
+        ]
+
+    @property
+    def tariff_ids(self) -> List[str]:
+        tariff_ids = set()
+
+        for key, value in self._account.info.items():
+            if value is not None:
+                parts = key.split('_')
+                if len(parts) > 1 and parts[1][0] == 't' and parts[1][1:].isnumeric():
+                    tariff_ids.add(parts[1])
+
+        return sorted(tariff_ids)
 
     @property
     def tariff_count(self) -> int:
-        return len(self.indications_ids)
-
-    @property
-    def last_indications_dict(self) -> Dict[str, Dict[str, Union[float, str]]]:
-        return {a: {'value': b, 'unit': c, 'name': d} for a, b, c, d in zip(
-            self.indications_ids,
-            self.last_indications,
-            self.indications_units,
-            self.indications_names
-        )}
+        return len(self.tariffs)
 
     @property
     def today_indications(self) -> List[Optional[float]]:
@@ -1095,27 +1184,67 @@ class BaseMeter(ABC):
         return self.last_indications
 
     @property
-    def period_start_date(self) -> date:
-        return DateUtil.month_start()
+    def period_start_date(self) -> Optional[date]:
+        return None
 
     @property
-    def period_end_date(self) -> date:
-        return DateUtil.month_end()
-
-    @property
-    def remaining_submit_days(self) -> int:
-        """
-        Calculate remaining days to submit indications
-        :return:
-        """
-        return (self.period_end_date - DateUtil.moscow_today(False)).days + 1
+    def period_end_date(self) -> Optional[date]:
+        return None
 
     @property
     def current_status(self) -> Optional[str]:
-        raise NotImplementedError
+        return None
 
 
 class SubmittableMeter(BaseMeter, ABC):
+    async def _check_submit_period(self) -> None:
+        period_start_date = self.period_start_date
+        period_end_date = self.period_end_date
+
+        if period_start_date is None or period_end_date is None:
+            remaining_days = await self._account.get_remaining_days()
+            if remaining_days is not None and not remaining_days[0]:
+                raise SubmissionPeriodException('Submission is not active')
+
+            _LOGGER.warning('Could not determine period start/end date(s), assuming failed period check')
+            raise SubmissionPeriodException('Could not identify submission period')
+
+        period = DateUtil.moscow_today()
+
+        if period < period_start_date or period > period_end_date:
+            raise SubmissionPeriodException('Submission period not within range')
+
+    async def _check_submit_values(self, indications: IndicationsType) -> None:
+        tariff_count = self.tariff_count
+
+        if len(indications) != tariff_count:
+            raise IndicationsCountException(
+                'Indications count (%d) is not equal to meter tariff count (%d)',
+                len(indications), tariff_count
+            )
+
+        try:
+            last_indications = self.last_indications
+
+        except (MosenergosbytException, NotImplementedError):
+            _LOGGER.debug('Could not determine last indications, assuming none provided')
+
+        else:
+            for last_indication, new_indication, tariff_id in zip(last_indications, indications, self.tariff_ids):
+                if last_indication > new_indication:
+                    raise IndicationsThresholdException(
+                        'Indication "%s" (%d) is less than last indication value (%d)',
+                        tariff_id, new_indication, last_indication
+                    )
+                elif int(last_indication) == int(new_indication):
+                    raise IndicationsThresholdException(
+                        'Indication "%s" (%d) is equal to last indication value integer-wise (%d)',
+                        tariff_id, int(new_indication), int(last_indication)
+                    )
+
+    async def _submit_indications(self, indications: IndicationsType) -> str:
+        raise NotImplementedError
+
     async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
                                  ignore_indications_check: bool = False) -> str:
         """
@@ -1127,6 +1256,15 @@ class SubmittableMeter(BaseMeter, ABC):
         :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
         :return: Status comment
         """
+        if not ignore_indications_check:
+            await self._check_submit_values(indications)
+
+        if not ignore_period_check:
+            await self._check_submit_period()
+
+        return await self._submit_indications(indications)
+
+    async def _calculate_indications(self, indications: IndicationsType) -> 'ChargeCalculation':
         raise NotImplementedError
 
     async def calculate_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
@@ -1140,7 +1278,13 @@ class SubmittableMeter(BaseMeter, ABC):
         :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
         :return: Charge calculation object
         """
-        raise NotImplementedError
+        if not ignore_indications_check:
+            await self._check_submit_values(indications)
+
+        if not ignore_period_check:
+            await self._check_submit_period()
+
+        return await self._calculate_indications(indications)
 
 
 class MESElectricityMeter(SubmittableMeter):
@@ -1151,59 +1295,22 @@ class MESElectricityMeter(SubmittableMeter):
         return self._data['nm_meter_num']
 
     @property
-    def indications_units(self) -> List[str]:
-        return ['кВт/ч']*self.tariff_count
-
-    @property
-    def indications_names(self) -> List[str]:
-        return [self._data['nm_%s' % i] for i in self.indications_ids]
-
-    @property
-    def indications_ids(self) -> List[str]:
-        return ['t%d' % i for i in range(1, self.tariff_count + 1)]
-
-    @property
-    def install_date(self) -> date:
+    def install_date(self) -> Optional[date]:
         """
         Meter install date accessor.
         :return: Installation date object
         """
-        return datetime.fromisoformat(self._data['dt_meter_install']).date()
+        install_date = self._data.get('dt_meter_install')
+        if install_date:
+            return datetime.fromisoformat(install_date).date()
 
     @property
-    def model(self) -> str:
+    def model(self) -> Optional[str]:
         """
         Meter model shortcut accessor.
         :return: Meter model string
         """
-        return self._data['nm_mrk']
-
-    @property
-    def tariff_names(self) -> Dict[int, str]:
-        return {
-            k: v
-            for k, v in self._data.items()
-            if k[:-1] == 'nm_t' and v is not None
-        }
-
-    @property
-    def tariff_count(self) -> int:
-        """
-        Tariff count accessor.
-        Skims meter data for existing indications, then deduces tariff count based
-        on indication values.
-        :return:
-        """
-        return len(self.tariff_names)
-
-    @property
-    def tariff_costs(self) -> List[Optional[float]]:
-        account_info = self._account.info
-        tariff_costs = list()
-        for i in self.indications_ids:
-            tariff_cost = account_info.get('vl_%s_tariff' % i)
-            tariff_costs.append(None if tariff_cost is None else float(tariff_cost))
-        return tariff_costs
+        return self._data.get('nm_mrk')
 
     @property
     def submitted_indications(self) -> List[Optional[float]]:
@@ -1214,19 +1321,22 @@ class MESElectricityMeter(SubmittableMeter):
         """
         if self.period_end_date >= self.last_indications_date >= self.period_start_date:
             return self.last_indications
+
         today_indications = self.today_indications
+
         if any(today_indications):
             return today_indications
-        return [None]*self.tariff_count
+
+        return [None] * self.tariff_count
 
     @property
-    def today_indications(self) -> List[float]:
+    def today_indications(self) -> List[Optional[float]]:
         """
         Today indications accessor.
         Skims meter data for indications submitted today and prepares data.
         :return:
         """
-        return [self._data.get('vl_%s_today' % i) for i in self.indications_ids]
+        return [self._data.get('vl_%s_today' % i) for i in self.tariff_ids]
 
     @property
     def last_indications(self) -> List[float]:
@@ -1235,7 +1345,7 @@ class MESElectricityMeter(SubmittableMeter):
         Returns data as list for indications submitted last.
         :return:
         """
-        return [self._data.get('vl_%s_last_ind' % i) for i in self.indications_ids]
+        return [self._data.get('vl_%s_last_ind' % i) for i in self.tariff_ids]
 
     @property
     def last_indications_date(self) -> Optional[date]:
@@ -1244,7 +1354,7 @@ class MESElectricityMeter(SubmittableMeter):
 
     @property
     def invoice_indications(self) -> List[float]:
-        return [self._data['vl_%s_inv' % i] for i in self.indications_ids]
+        return [self._data['vl_%s_inv' % i] for i in self.tariff_ids]
 
     @property
     def period_start_date(self) -> date:
@@ -1255,89 +1365,30 @@ class MESElectricityMeter(SubmittableMeter):
         return DateUtil.moscow_today().replace(day=self._data['nn_period_end'])
 
     @property
-    def remaining_submit_days(self):
-        """
-        Calculate remaining days to submit indications
-        :return:
-        """
-        return (self.period_end_date - DateUtil.moscow_today(False)).days + 1
-
-    @property
     def current_status(self):
         return self._data['nm_result']
 
     # Submission algorithms
-    def _check_submission_date(self, submission_date: Optional[date] = None) -> None:
-        """
-        Checks whether submission date is within bounds.
-        :param submission_date: (optional) Submission date object (checks today in Moscow TZ by default)
-        :raises MosenergosbytException: Submission date is out of current period
-        :return:
-        """
-        if submission_date is None:
-            now = datetime.now(tz=tz.gettz('Europe/Moscow'))
-            submission_date = now.date()
+    async def _prepare_indications_request(self, indications: IndicationsType):
+        # noinspection PyTypeChecker
+        account: MESAccount = self._account
 
-        if not (self.period_start_date <= submission_date <= self.period_end_date):
-            raise MosenergosbytException('Out of period (from %s to %s) submission date (%s)'
-                                         % (self.period_start_date, self.period_end_date, submission_date))
-
-    def _check_indication_params(self, params: Dict[str, int]) -> None:
-        """
-        Checks indication parameters.
-        :param params: Indications (ex. {'vl_t1': 123})
-        :raises IndicationsCountException: There is a number of indications differing from meter tariff count
-        :raises IndicationsThresholdException: New indications are below submitted / previous indications threshold
-        """
-        if len(params) != self.tariff_count:
-            raise IndicationsCountException('Indications count (%d) is not equal to meter tariff count (%d)'
-                                            % (len(params), self.tariff_count))
-
-        for parameter, new_value in params.items():
-            for suffix, name in [('_last_ind', 'previous'), ('_today', 'submitted')]:
-                old_value = self._data.get(parameter + suffix, new_value)
-                if old_value is not None and new_value < old_value:
-                    raise IndicationsThresholdException('Indication T%s (%d) is lower than %s indication (%d)'
-                                                        % (parameter[-1], new_value, name, old_value))
-
-    async def _prepare_indications_request(self, indications: IndicationsType, ignore_period_check: bool = False,
-                                           ignore_indications_check: bool = False):
-        if not ignore_period_check:
-            self._check_submission_date()
-
-        converter = float if await self._account.get_indications_is_float() else int
+        converter = float if await account.get_indications_is_float() else int
 
         request_dict = {
             'vl_%s' % tariff_id: converter(indication)
-            for tariff_id, indication in zip(self.indications_ids, indications)
+            for tariff_id, indication in zip(self.tariff_ids, indications)
             if indication is not None
         }
 
-        if not ignore_indications_check:
-            self._check_indication_params(request_dict)
-
         request_dict['pr_flat_meter'] = self._data['pr_flat_meter']
 
-        request_dict['nn_phone'] = await self._account.get_contact_phone()
+        request_dict['nn_phone'] = await account.get_contact_phone()
 
         return request_dict
 
-    async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                                 ignore_indications_check: bool = False) -> str:
-        """
-        Submit indications to Mosenergosbyt.
-        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
-        submissions. Override these safeguards at your own risk.
-        :param indications: Indications list / dictionary
-        :param ignore_period_check: Ignore out-of-period safeguard
-        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
-        :return: Status comment
-        """
-        request_dict = await self._prepare_indications_request(indications,
-                                                               ignore_period_check,
-                                                               ignore_indications_check)
-
-        self._account: MESAccount
+    async def _submit_indications(self, indications: IndicationsType) -> str:
+        request_dict = await self._prepare_indications_request(indications)
         result = await self._account.lk_byt_proxy('SaveIndications', request_dict)
 
         result_data = result.get('data')
@@ -1349,25 +1400,11 @@ class MESElectricityMeter(SubmittableMeter):
             if data['kd_result'] == 2:
                 raise IndicationsCountException('Sent invalid indications count')
 
-        _LOGGER.debug('Indications saving response data: %s' % result)
+        _LOGGER.debug('Indications saving response data: %s', result)
         raise MosenergosbytException('Unknown error')
 
-    async def calculate_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                                    ignore_indications_check: bool = False) -> 'ChargeCalculation':
-        """
-        Calculate indications charges with Mosenergosbyt.
-        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
-        submissions. Override these safeguards at your own risk.
-        :param indications: Indications list / dictionary
-        :param ignore_period_check: Ignore out-of-period safeguard
-        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
-        :return: Charge calculation object
-        """
-        request_dict = await self._prepare_indications_request(indications,
-                                                               ignore_period_check,
-                                                               ignore_indications_check)
-
-        self._account: MESAccount
+    async def _calculate_indications(self, indications: IndicationsType) -> 'ChargeCalculation':
+        request_dict = await self._prepare_indications_request(indications)
         result = await self._account.lk_byt_proxy('CalcCharge', request_dict)
 
         result_data = result.get('data')
@@ -1393,81 +1430,65 @@ class TKOIndicationMeter(BaseMeter):
         self._meter_code = self.account_code
 
     @property
-    def indications_units(self) -> List[str]:
-        return [a['unit'] for a in self._data.values()]
+    def tariff_ids(self) -> List[str]:
+        return sorted(self._data.keys())
 
     @property
-    def indications_names(self) -> List[str]:
-        return [a['name'] for a in self._data.values()]
+    def tariffs(self) -> List[Tariff]:
+        tariffs = []
 
-    @property
-    def indications_ids(self) -> List[str]:
-        return list(self._data.keys())
+        for key in self.tariff_ids:
+            indication = self._data[key]
+            tariff = Tariff(
+                id=key,
+                name=indication.get(Invoice.ATTRS.NAME),
+                unit=indication.get(Invoice.ATTRS.UNIT),
+                description=None,
+                cost=indication.get(Invoice.ATTRS.COST)
+            )
+            tariffs.append(tariff)
 
-    @property
-    def last_indications_dict(self) -> Dict[str, Dict[str, Union[float, str]]]:
-        return self._data
+        return tariffs
 
     @property
     def meter_code(self) -> str:
         return self._meter_code
 
     @property
-    def last_indications(self) -> List[float]:
-        return [a['value'] for a in self._data.values()]
+    def last_indications(self) -> List[Optional[float]]:
+        return [None if a['value'] is None else float(a['value']) for a in self._data.values()]
 
     @property
     def today_indications(self) -> List[float]:
         raise MosenergosbytException('Operation not supported for MES+TKO meters')
 
     @property
-    def remaining_submit_days(self) -> Optional[int]:
-        return None
-
-    @property
-    def current_status(self) -> Optional[str]:
-        return None
-
-    @property
     def tariff_count(self) -> int:
         return len(self._data)
-
-    # Meter-specific properties
-    @property
-    def tariff_price(self) -> float:
-        return self._data['cost']
-
-    @property
-    def total_cost(self) -> float:
-        return self._data['total']
 
 
 class MOEGenericMeter(SubmittableMeter):
     """ Mosenergosbyt meter class """
 
     @property
-    def indications_ids(self) -> List[str]:
-        return ['indication']
-
-    @property
     def meter_code(self) -> str:
         return self._data['nm_counter']
 
     @property
-    def indications_units(self) -> List[str]:
-        return [self.indications_unit]
+    def tariff_ids(self) -> List[str]:
+        return ['main']
 
     @property
-    def indications_unit(self) -> str:
-        return self._data['nm_measure_unit']
-
-    @property
-    def indications_names(self) -> List[str]:
-        return [self.indications_name]
-
-    @property
-    def indications_name(self) -> str:
-        return self._data['nm_service']
+    def tariffs(self) -> List[Tariff]:
+        return [
+            Tariff(
+                id=self.tariff_ids[0],
+                name=self._data.get('nm_service'),
+                description=None,
+                unit=self._data.get('nm_measure_unit'),
+                cost=None
+            )
+        ]
 
     @property
     def submitted_indications(self) -> List[Optional[float]]:
@@ -1476,10 +1497,17 @@ class MOEGenericMeter(SubmittableMeter):
     @property
     def submitted_indication(self) -> Optional[float]:
         last_indications_date = self.last_indications_date
+
         if last_indications_date is not None:
-            if self.period_end_date >= last_indications_date >= self.period_start_date:
+            period_start_date = self.period_start_date
+            period_end_date = self.period_end_date
+
+            if not (period_start_date is None or period_end_date is None) \
+                    and period_start_date <= last_indications_date <= period_end_date:
                 return self.last_indication
+
             return self.today_indication
+
         return None
 
     @property
@@ -1489,13 +1517,13 @@ class MOEGenericMeter(SubmittableMeter):
         Skims meter data for indications submitted today and prepares data.
         :return:
         """
-        if self.last_indications_date == DateUtil.moscow_today():
-            return self.last_indications
-        return [None]
+        return [self.today_indication]
 
     @property
     def today_indication(self) -> Optional[float]:
-        return self.today_indications[0]
+        if self.last_indications_date == DateUtil.moscow_today():
+            return self.last_indication
+        return None
 
     @property
     def last_indications(self) -> List[Optional[float]]:
@@ -1512,37 +1540,26 @@ class MOEGenericMeter(SubmittableMeter):
 
     @property
     def last_indications_date(self) -> Optional[date]:
-        return datetime.fromisoformat(self._data['dt_last_indication']).date()
+        last_indications_date = self._data.get('dt_last_indication')
+        if last_indications_date:
+            last_indications_date = str(last_indications_date).replace(' ', 'T', 1).rstrip('0').rstrip('.')
+            return datetime.fromisoformat(last_indications_date).date()
 
     @property
     def invoice_indications(self) -> List[Optional[float]]:
         return [None]
 
     @property
-    def current_status(self):
-        return str(self._data['pr_state'])
+    def current_status(self) -> Optional[str]:
+        # return str(self._data['pr_state'])
+        return None
 
     # Submission algorithms
-    def _check_submission_date(self, submission_date: Optional[date] = None) -> None:
-        """
-        Checks whether submission date is within bounds.
-        :param submission_date: (optional) Submission date object (checks today in Moscow TZ by default)
-        :raises MosenergosbytException: Submission date is out of current period
-        :return:
-        """
-        if submission_date is None:
-            now = datetime.now(tz=tz.gettz('Europe/Moscow'))
-            submission_date = now.date()
-
-        if not (self.period_start_date <= submission_date <= self.period_end_date):
-            raise MosenergosbytException('Out of period (from %s to %s) submission date (%s)'
-                                         % (self.period_start_date, self.period_end_date, submission_date))
-
-    async def _prepare_indications_request(self, indication: Union[int, float], ignore_indications_check: bool = False):
+    async def _prepare_indications_request(self, indication: Union[int, float]):
         converter = float if await self._account.get_indications_is_float() else int
         new_value = converter(indication)
 
-        request_dict = {
+        return {
             'dt_indication': datetime.now().isoformat(),
             'id_counter': self._data['id_counter'],
             'id_counter_zn': self._data['id_counter_zn'],
@@ -1552,37 +1569,8 @@ class MOEGenericMeter(SubmittableMeter):
             'vl_indication': new_value
         }
 
-        if not ignore_indications_check:
-            old_value = self.last_indication or 0
-            if old_value > new_value:
-                raise IndicationsThresholdException(
-                    'Indication (%d) is lower than submitted indication (%d)' % (new_value, old_value)
-                )
-
-            elif old_value == new_value:
-                raise IndicationsThresholdException(
-                    'Indication (%d) is equal to submitted indication (%d)' % (new_value, old_value)
-                )
-
-        return request_dict
-
-    async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                                 ignore_indications_check: bool = False) -> str:
-        """
-        Submit indications to Mosenergosbyt.
-        Use this method with caution! There are safeguards in place to prevent an out-of-period and incomplete
-        submissions. Override these safeguards at your own risk.
-        :param indications: Indications list / dictionary
-        :param ignore_period_check: Ignore out-of-period safeguard
-        :param ignore_indications_check: Ignore indications miscount or lower-than-threshold safeguard
-        :return: Status comment
-        """
-        request_dict = await self._prepare_indications_request(
-            next(iter(indications)),
-            ignore_indications_check=ignore_indications_check
-        )
-
-        self._account: MOEAccount
+    async def _submit_indications(self, indications: IndicationsType) -> str:
+        request_dict = await self._prepare_indications_request(next(iter(indications)))
         result = await self._account.direct_request('propagateMoeInd', 'AbonentSaveIndication', request_dict)
 
         result_data = result.get('data')
@@ -1621,12 +1609,75 @@ class MOEGenericMeter(SubmittableMeter):
         raise MosenergosbytException('Indications calculations has not yet been implemented')
 
 
+class KSGElectricityMeter(SubmittableMeter):
+    async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                 ignore_indications_check: bool = False) -> str:
+        raise MosenergosbytException('not yet implemented')
+
+    async def calculate_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
+                                    ignore_indications_check: bool = False) -> 'ChargeCalculation':
+        raise MosenergosbytException('not yet implemented')
+
+    @property
+    def meter_code(self) -> str:
+        return self._account.info['nn_meter'].strip()
+
+    @property
+    def model(self) -> Optional[str]:
+        return self._account.info.get('nm_counter_brand')
+
+    @property
+    def install_date(self) -> Optional[date]:
+        install_date = self._account.info.get('dt_meter_installation')
+        if install_date:
+            return datetime.fromisoformat(install_date).date()
+
+    @property
+    def indications_date(self) -> Optional[date]:
+        indications_date = self.data.get('dt_indication')
+
+        if indications_date:
+            return date.fromisoformat(indications_date)
+
+    @property
+    def today_indications(self) -> List[Optional[float]]:
+        indications_date = self.data.get('dt_indication')
+
+        if self.indications_date and indications_date == DateUtil.moscow_today():
+            return self.last_indications
+
+        return [None] * self.tariff_count
+
+    @property
+    def last_indications(self) -> List[Optional[float]]:
+        indications = []
+        for tariff_id in self.tariff_ids:
+            value = self.data.get('vl_' + tariff_id)
+            indications.append(value if value is None else float(value))
+        return indications
+
+    @property
+    def submitted_indications(self) -> List[Optional[float]]:
+        indications_date = self.indications_date
+
+        if indications_date and self.period_start_date <= indications_date <= self.period_end_date:
+            return self.last_indications
+
+        return [None] * self.tariff_count
+
+    async def _submit_indications(self, indications: IndicationsType) -> str:
+        pass
+
+    async def _calculate_indications(self, indications: IndicationsType) -> 'ChargeCalculation':
+        pass
+
+
 class ChargeCalculation:
     def __init__(self, meter: 'BaseMeter', indications: IndicationsType, charged: float, comment: str,
                  period: Optional[date] = None):
         self._period: date = DateUtil.month_start() if period is None else period
         self._meter = meter
-        self._indications = dict(zip(meter.indications_ids, indications))
+        self._indications = dict(zip(meter.tariff_ids, indications))
 
         self.charged = float(charged)
         self.comment = comment

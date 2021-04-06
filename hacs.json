@@ -2,9 +2,9 @@
   "name": "Mosenergosbyt (Мосэнергосбыт)",
   "content_in_root": false,
   "zip_release": false,
-  "render_readme": false,
+  "render_readme": true,
   "domains": ["sensor"],
   "country": "ru",
-  "homeassistant": "0.109.0",
+  "homeassistant": "2021.2.0",
   "iot_class": "Cloud Polling"
 }

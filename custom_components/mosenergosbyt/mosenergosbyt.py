@@ -281,22 +281,33 @@ class API:
 
         return True
 
-    async def get_accounts(self) -> List['BaseAccount']:
+    async def get_accounts(self, return_unsupported_accounts: bool = False)\
+            -> Union[List['BaseAccount'], Tuple[List['BaseAccount'], List[Mapping[str, Any]]]]:
         response = await self.request_sql('LSList')
-        
-        accounts_list = []
+
         tasks = []
+        accounts_list: List[BaseAccount] = []
+        unsupported_accounts: List[Mapping[str, Any]] = []
+
         for account_data in response['data']:
             try:
                 account_obj = create_account_instance(account_data, self)
-                tasks.append(asyncio.create_task(account_obj.update_info()))
-                accounts_list.append(account_obj)
 
             except UnsupportedAccountException as e:
-                _LOGGER.error('Unsupported account encountered: %s', e)
+                if return_unsupported_accounts:
+                    unsupported_accounts.append(account_data)
+                else:
+                    _LOGGER.error('Unsupported account encountered: %s', e)
 
-        await asyncio.wait(tasks)
+            else:
+                accounts_list.append(account_obj)
+                tasks.append(account_obj.update_info())
 
+        if tasks:
+            await asyncio.wait(tasks)
+
+        if return_unsupported_accounts:
+            return accounts_list, unsupported_accounts
         return accounts_list
 
 

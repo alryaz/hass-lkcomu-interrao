@@ -588,18 +588,19 @@ class MESAccountSensor(MESEntity):
 
     async def async_update(self):
         """The update method"""
-        remaining_days: Optional[Tuple[bool, int]] = None
+        account = self.account
 
         attributes = {
-            'account_code': self.account.account_code,
-            'address': self.account.address,
-            'service_type': self.account.service_type.name.lower(),
+            'account_code': account.account_code,
+            'address': account.address,
+            'service_type': account.service_type.name.lower(),
+            'description': account.description
         }
 
-        if self.account.is_locked:
+        if account.is_locked:
             attributes.update({
                 'status': STATE_LOCKED,
-                'reason': self.account.lock_reason
+                'reason': account.lock_reason
             })
 
             self._state = STATE_UNKNOWN
@@ -608,9 +609,9 @@ class MESAccountSensor(MESEntity):
         else:
             try:
                 _LOGGER.debug('Updating account %s' % self)
-                last_payment = (await self.account.get_last_payment()) or {}
-                current_balance = await self.account.get_current_balance()
-                remaining_days = await self.account.get_remaining_days()
+                last_payment = (await account.get_last_payment()) or {}
+                current_balance = await account.get_current_balance()
+                remaining_days = await account.get_remaining_days()
 
             except MosenergosbytException as e:
                 exc_name = e.__class__.__name__.split('.')[-1]
@@ -625,10 +626,9 @@ class MESAccountSensor(MESEntity):
                 'last_payment_date': last_payment.get('date'),
                 'last_payment_amount': last_payment.get('amount'),
                 'last_payment_status': last_payment.get('status', STATE_UNKNOWN),
-                'service_type': self.account.service_type.name.lower(),
                 'status': STATE_OK,
             })
-
+            
             if remaining_days is not None:
                 attributes['submit_period_active'] = remaining_days[0]
                 attributes['remaining_days'] = remaining_days[1]

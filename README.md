@@ -19,6 +19,24 @@
 [<img alt="Счётчик МЭС+ТКО" src="https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter_tko.png" height="240">](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/meter_tko.png)
 [<img alt="Квитанция" src="https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/invoice.png" height="240">](https://raw.githubusercontent.com/alryaz/hass-mosenergosbyt/master/images/invoice.png)
 
+## Поддержка провайдеров
+| Провайдер | `kd_provider_id` | Лицевой счёт | Счётчики | Счета | Передача показаний |
+| --------- | ---------------- | ------------ | -------- | ----- | ------------------ |
+| MES       | 1                | **Да**       | **Да**   | Нет   | **Да**             |
+| MOE       | 2                | **Да**       | **Да**   | Нет   | Нет                |
+| TMK_NRG   | 3                | Нет          | Нет      | Нет   | Нет                |
+| TMK_RTS   | 4                | Нет          | Нет      | Нет   | Нет                |
+| UFA       | 5                | Нет          | Нет      | Нет   | Нет                |
+| TKO       | 6                | **Да**       | Нет      | Нет   | Нет                |
+| VLG       | 7                | Нет          | Нет      | Нет   | Нет                |
+| ORL       | 8                | Нет          | Нет      | Нет   | Нет                |
+| ORL_EPD   | 9                | Нет          | Нет      | Нет   | Нет                |
+| ALT       | 10               | Нет          | Нет      | Нет   | Нет                |
+| TMB       | 11               | Нет          | Нет      | Нет   | Нет                |
+| VLD       | 12               | Нет          | Нет      | Нет   | Нет                |
+| SAR       | 13               | Нет          | Нет      | Нет   | Нет                |
+| KSG       | 14               | **Да**       | _DEV_    | Нет   | Нет                |
+
 ## Установка
 ### Посредством HACS
 1. Откройте HACS (через `Extensions` в боковой панели)

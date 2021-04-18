@@ -213,10 +213,10 @@ class API:
             _LOGGER.debug('Response contents: %s' % response_text)
             raise MosenergosbytException('Response contains invalid JSON') from None
 
-        if data['success'] is not None and data['success']:
+        if data.get('success') is not None and data['success']:
             return data
 
-        elif data['err_code'] == ResponseCodes.UNAUTHORIZATION:
+        elif data.get('err_code', -1) == ResponseCodes.UNAUTHORIZATION:
             if fail_on_reauth:
                 raise MosenergosbytException('Request returned')
 
@@ -227,7 +227,8 @@ class API:
                 fail_on_reauth=True
             )
 
-        raise MosenergosbytException('Unknown error')
+        raise MosenergosbytException('Request error [%d]: %s' % (data.get('err_code', -1),
+                                                                 data.get('err_text', 'no description provided')))
 
     async def request_sql(self, query, post_fields: Optional[Dict] = None):
         return await self.request('sql', query, post_fields, 'POST')
@@ -666,6 +667,44 @@ class BaseAccount(ABC):
 
         return None
 
+    async def _common_proxy_payments(
+            self,
+            start: datetime,
+            end: datetime,
+            plugin: str,
+            proxy_query: str = 'Pays',
+            key_date: str = 'dt_pay',
+            key_amount: str = 'sm_pay',
+            key_status: str = 'nm_status',
+    ) -> List[Dict[str, Any]]:
+        response = await self.proxy_request(
+            plugin=plugin,
+            proxy_query=proxy_query,
+            data={
+                'dt_st': start.isoformat(),
+                'dt_en': end.isoformat()
+            }
+        )
+
+        return [
+            {
+                'date': datetime.fromisoformat(payment[key_date]),
+                'amount': payment[key_amount],
+                'status': payment[key_status],
+            }
+            for payment in response['data']
+            if payment
+        ]
+
+    async def _common_proxy_balance(
+            self,
+            plugin: str,
+            proxy_query: str = 'CurrentBalance',
+            key_balance: str = 'vl_balance',
+    ):
+        response = await self.proxy_request(plugin, proxy_query)
+        return response['data'][0][key_balance]
+
     # Methods to override
     async def get_current_balance(self) -> float:
         raise NotImplementedError
@@ -857,24 +896,10 @@ class MESAccount(BaseAccount):
         return await self._common_proxy_invoices(start, end, 'bytProxy')
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
-        response = await self.lk_byt_proxy('Pays', {
-            'dt_st': start.isoformat(),
-            'dt_en': end.isoformat()
-        })
-
-        return [
-            {
-                'date': datetime.fromisoformat(payment['dt_pay']),
-                'amount': payment['sm_pay'],
-                'status': payment['nm_status'],
-            }
-            for payment in response['data']
-            if payment
-        ]
+        return await self._common_proxy_payments(start, end, 'bytProxy')
 
     async def get_current_balance(self) -> float:
-        response = await self.lk_byt_proxy('CurrentBalance')
-        return response['data'][0]['vl_balance']
+        return await self._common_proxy_balance('bytProxy')
 
     async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
         return await self._common_proxy_remaining_days('bytProxy')
@@ -896,20 +921,9 @@ class TKOAccount(BaseAccount):
         return await self._common_proxy_charge_details(start, end, 'trashProxy')
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
-        response = await self.lk_trash_proxy('AbonentPays', {
-            'dt_st': start.isoformat(),
-            'dt_en': end.isoformat()
-        })
-
-        return [
-            {
-                'date': datetime.fromisoformat(payment['dt_pay']),
-                'amount': payment['sm_pay'],
-                'status': payment['nm_pay_state'],
-            }
-            for payment in response['data']
-            if payment
-        ]
+        return await self._common_proxy_payments(start, end, 'trashProxy',
+                                                 proxy_query='AbonentPays',
+                                                 key_status='nm_pay_state')
 
     async def _get_indications(self, start: datetime, end: datetime) -> IndicationsList:
         response = await self.lk_trash_proxy('AbonentChargeDetail', {
@@ -1004,20 +1018,7 @@ class MOEAccount(MESAccount):
         return await self._common_proxy_charge_details(start, end, 'smorodinaTransProxy')
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
-        response = await self.lk_smorodina_trans_proxy('AbonentPays', {
-            'dt_st': start.isoformat(),
-            'dt_en': end.isoformat()
-        })
-
-        return [
-            {
-                'date': datetime.fromisoformat(payment['dt_pay']),
-                'amount': payment['sm_pay'],
-                'status': payment['nm_pay_state'],
-            }
-            for payment in response['data']
-            if payment
-        ]
+        return await self._common_proxy_payments(start, end, 'smorodinaTransProxy', key_status='nm_pay_state')
 
     update_info = BaseAccount.update_info
 
@@ -1065,20 +1066,7 @@ class KSGAccount(BaseAccount):
         return await self._common_proxy_invoices(start, end, 'ksgProxy')
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
-        response = await self.lk_ksg_proxy('Pays', {
-            'dt_st': start.isoformat(),
-            'dt_en': end.isoformat()
-        })
-
-        return [
-            {
-                'date': datetime.fromisoformat(payment['dt_pay']),
-                'amount': payment['sm_pay'],
-                'status': payment['nm_status'],
-            }
-            for payment in response['data']
-            if payment
-        ]
+        return await self._common_proxy_payments(start, end, 'ksgProxy')
 
     async def get_current_balance(self) -> float:
         response = await self.lk_ksg_proxy('CurrentBalance')
@@ -1475,7 +1463,7 @@ class TKOIndicationMeter(BaseMeter):
 
     @property
     def today_indications(self) -> List[float]:
-        raise MosenergosbytException('Operation not supported for MES+TKO meters')
+        raise ActionNotSupportedException('MES+TKO meters do not support `today_indications`')
 
     @property
     def tariff_count(self) -> int:
@@ -1611,7 +1599,7 @@ class MOEGenericMeter(SubmittableMeter):
         )
 
     async def _calculate_indications(self, indications: IndicationsType) -> 'ChargeCalculation':
-        raise MosenergosbytException('indications calculation not supported with this provider')
+        raise ActionNotSupportedException('Provider does not support indication calculation')
 
 
 class KSGElectricityMeter(SubmittableMeter):
@@ -1826,4 +1814,8 @@ class UnsupportedServiceException(UnsupportedAccountException):
 
 
 class UnsupportedProviderException(UnsupportedAccountException):
+    pass
+
+
+class ActionNotSupportedException(MosenergosbytException):
     pass

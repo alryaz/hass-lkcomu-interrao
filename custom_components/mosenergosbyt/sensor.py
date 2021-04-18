@@ -23,7 +23,7 @@ from . import DATA_CONFIG, CONF_ACCOUNTS, DEFAULT_SCAN_INTERVAL, DATA_API_OBJECT
     CONF_LOGIN_TIMEOUT, DEFAULT_LOGIN_TIMEOUT, DEFAULT_METER_NAME_FORMAT, CONF_METER_NAME, CONF_ACCOUNT_NAME, \
     DEFAULT_ACCOUNT_NAME_FORMAT, DOMAIN, CONF_INVOICES, DEFAULT_INVOICE_NAME_FORMAT, CONF_INVOICE_NAME
 from .mosenergosbyt import MosenergosbytException, ServiceType, BaseAccount, \
-    Invoice, IndicationsCountException, SubmittableMeter, BaseMeter, MOEGenericMeter
+    Invoice, IndicationsCountException, SubmittableMeter, BaseMeter, MOEGenericMeter, ActionNotSupportedException
 
 if TYPE_CHECKING:
     from types import MappingProxyType
@@ -138,16 +138,16 @@ async def _entity_updater(hass: HomeAssistantType, entry_id: str, user_cfg: Conf
     for account in accounts:
         account_code = account.account_code
         
-        _LOGGER.debug('Setting up account %s for username %s' % (account_code, username))
-        
         if use_meter_filter:
             meter_filter = user_cfg[CONF_ACCOUNTS].get(account_code)
             
             if meter_filter is None:
-                _LOGGER.debug('Completely skipping account %s for username %s' % (account_code, username))
+                _LOGGER.info('Completely skipping account %s for username %s' % (account_code, username))
                 continue
         else:
             meter_filter = True
+
+        _LOGGER.info('Setting up account %s for username %s' % (account_code, username))
 
         account_entity = None
         for entity in created_entities:
@@ -574,6 +574,13 @@ class MESEntity(Entity):
     def icon(self):
         return self._icon
 
+    @staticmethod
+    def _log_unsupported(action: str, attribute: str, exception: Exception):
+        message = 'Did not add %s (attribute: %s)' % (action, attribute)
+        if exception.args:
+            message += ' (reason: %s)' % (exception,)
+        _LOGGER.debug(message)
+
 
 class MESAccountSensor(MESEntity):
     """The class for this sensor"""
@@ -661,6 +668,9 @@ ATTR_ACCOUNT_CODE = 'account_code'
 ATTR_REMAINING_DAYS = 'remaining_days'
 ATTR_MODEL = 'model'
 ATTR_INSTALL_DATE = 'install_date'
+ATTR_FMT_LAST_VALUE = 'last_value_%s'
+ATTR_FMT_SUBMITTED_VALUE = 'submitted_value_%s'
+ATTR_FMT_TODAY_VALUE = 'today_value_%s'
 
 
 class MESMeterSensor(MESEntity):
@@ -692,17 +702,19 @@ class MESMeterSensor(MESEntity):
         # Submit period attributes
         try:
             submit_period_start = self.meter.period_start_date
+        except (ActionNotSupportedException, NotImplementedError) as e:
+            self._log_unsupported('submit period start date', ATTR_SUBMIT_PERIOD_START, e)
+        else:
             if submit_period_start:
                 attributes[ATTR_SUBMIT_PERIOD_START] = submit_period_start.isoformat()
-        except (MosenergosbytException, NotImplementedError):
-            pass
 
         try:
             submit_period_end = self.meter.period_end_date
+        except (ActionNotSupportedException, NotImplementedError) as e:
+            self._log_unsupported('submit period end date', ATTR_SUBMIT_PERIOD_END, e)
+        else:
             if submit_period_end:
                 attributes[ATTR_SUBMIT_PERIOD_END] = submit_period_end.isoformat()
-        except (MosenergosbytException, NotImplementedError):
-            pass
 
         # Installation date attribute
         install_date = self.meter.install_date
@@ -725,29 +737,29 @@ class MESMeterSensor(MESEntity):
             # Add last indications (if available)
             try:
                 last_indications = self.meter.last_indications
-            except (MosenergosbytException, NotImplementedError) as e:
-                _LOGGER.debug('Did not add last indications: %s', e)
+            except (ActionNotSupportedException, NotImplementedError) as e:
+                self._log_unsupported('last indications', ATTR_FMT_LAST_VALUE % 'N', e)
             else:
                 for tariff, value in zip(tariffs, last_indications):
-                    attributes['last_value_%s' % tariff.id] = value
+                    attributes[ATTR_FMT_LAST_VALUE % tariff.id] = value
 
             # Add submitted indications (if available)
             try:
                 submitted_indications = self.meter.submitted_indications
-            except (MosenergosbytException, NotImplementedError) as e:
-                _LOGGER.debug('Did not add submitted indications: %s', e)
+            except (ActionNotSupportedException, NotImplementedError) as e:
+                self._log_unsupported('submitted indications', ATTR_FMT_SUBMITTED_VALUE % 'N', e)
             else:
                 for tariff, value in zip(tariffs, submitted_indications):
-                    attributes['submitted_value_%s' % tariff.id] = value
+                    attributes[ATTR_FMT_SUBMITTED_VALUE % tariff.id] = value
 
             # Add today's indications (if available)
             try:
                 today_indications = self.meter.today_indications
-            except (MosenergosbytException, NotImplementedError) as e:
-                _LOGGER.debug('Did not add today indications: %s', e)
+            except (ActionNotSupportedException, NotImplementedError) as e:
+                self._log_unsupported('today\'s indications', ATTR_FMT_TODAY_VALUE % 'N', e)
             else:
                 for tariff, value in zip(tariffs, today_indications):
-                    attributes['today_value_%s' % tariff.id] = value
+                    attributes[ATTR_FMT_TODAY_VALUE % tariff.id] = value
 
         meter_status = self.meter.current_status
         self._state = STATE_OK if meter_status is None else meter_status

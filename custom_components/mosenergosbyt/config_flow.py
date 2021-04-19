@@ -29,7 +29,7 @@ class MosenergosbytFlowHandler(config_entries.ConfigFlow):
         current_entries = self._async_current_entries()
 
         for config_entry in current_entries:
-            if config_entry.data.get(CONF_USERNAME) == username:
+            if config_entry.data[CONF_USERNAME] == username:
                 return True
 
         return False
@@ -45,17 +45,20 @@ class MosenergosbytFlowHandler(config_entries.ConfigFlow):
         if await self._check_entry_exists(username):
             return self.async_abort("already_exists")
 
-        from .mosenergosbyt import API
+        from custom_components.mosenergosbyt.api import API
 
         try:
             api = API(username=username, password=user_input[CONF_PASSWORD])
+
             if not await api.login():
-                return self.async_abort("invalid_credentials")
+                return self.async_show_form(step_id="user", data_schema=self.schema_user, errors={
+                    "base": "invalid_credentials"
+                })
 
         except:  # @TODO: more specific exception handling
             return self.async_abort("authentication_error")
 
-        return self.async_create_entry(title="User: " + username, data=user_input)
+        return self.async_create_entry(title=username, data=user_input)
 
     async def async_step_import(self, user_input=None):
         if user_input is None:
@@ -66,4 +69,4 @@ class MosenergosbytFlowHandler(config_entries.ConfigFlow):
         if await self._check_entry_exists(username):
             return self.async_abort("already_exists")
 
-        return self.async_create_entry(title="User: " + username, data={CONF_USERNAME: username})
+        return self.async_create_entry(title=username, data={CONF_USERNAME: username})

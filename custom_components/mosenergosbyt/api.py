@@ -282,6 +282,7 @@ class API:
 
         except Exception as e:
             self._pending_authentication_request.set_exception(e)
+            raise self._pending_authentication_request.result()
         else:
             self._pending_authentication_request.set_result(True)
         finally:
@@ -1070,7 +1071,6 @@ class KSGAccount(BaseAccount):
         keep_meter_objects = []
 
         if self._meter_objects:
-            from pprint import pprint
             meter_code = self._account_info['nn_meter'].strip()
             keep_meter_objects = []
             for meter_object in self._meter_objects:

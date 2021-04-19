@@ -8,10 +8,12 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD,
                                  CONF_SCAN_INTERVAL, CONF_DEFAULT, CONF_ENTITIES)
 from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers.entity_platform import EntityPlatform
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 from homeassistant.loader import bind_hass
 
@@ -43,55 +45,106 @@ class _SubValidated(dict):
         return dict.__getitem__(self, item)
 
 
-def _validator_sub_values(val_validator: Callable[[Any], TValidated],
-                          val_default: TValidated,
-                          idx_validator: Callable[[Any], Hashable]):
-    sub_validator = vol.Any(
-        vol.All(
-            vol.Schema({
-                vol.Optional(CONF_DEFAULT, default=val_default): val_validator,
-                idx_validator: val_validator
-            }, extra=vol.PREVENT_EXTRA),
-            _SubValidated
-        ),
-        vol.All(val_validator, lambda x: _SubValidated({CONF_DEFAULT: x}))
-    )
+def _make_log_prefix(config_entry: Union[Any, ConfigEntry], domain: Union[Any, EntityPlatform], *args):
+    return '[' + ']['.join([
+        config_entry.entry_id[-6:] if isinstance(config_entry, ConfigEntry) else str(config_entry),
+        domain.domain if isinstance(domain, EntityPlatform) else str(domain),
+        *map(str, args)
+    ]) + '] '
+
+
+def _validator_single(val_validator: Callable[[Any], TValidated],
+                      idx_keys: Collection[str]):
+    if idx_keys is None:
+        idx_keys = tuple(ENTITY_CODES_VALIDATORS.keys())
+    elif not isinstance(idx_keys, tuple):
+        idx_keys = tuple(idx_keys)
+
+    return vol.All(val_validator, lambda x: dict.fromkeys(idx_keys, x))
+
+
+def _validator_multi(val_validator: Callable[[Any], TValidated],
+                     val_defaults: Mapping[str, TValidated],
+                     idx_keys: Collection[str]):
+    if idx_keys is None:
+        idx_keys = tuple(ENTITY_CODES_VALIDATORS.keys())
+    elif not isinstance(idx_keys, tuple):
+        idx_keys = tuple(idx_keys)
+
+    single_validator = _validator_single(val_validator, idx_keys)
+    multi_validator = vol.Schema({
+        vol.Optional(key, default=val_defaults[key]): val_validator
+        for key in idx_keys
+    })
 
     if val_validator is cv.boolean:
-        sub_validator = vol.Any(
-            sub_validator,
+        multi_validator = vol.Any(
+            multi_validator,
             vol.All(
-                cv.ensure_list,
-                [vol.Any(idx_validator, vol.Equal(CONF_DEFAULT))],
-                lambda x: _SubValidated({CONF_DEFAULT: False, **{list_key: True for list_key in x}})
+                [vol.Any(vol.Equal(CONF_DEFAULT), vol.In(idx_keys))],
+                vol.Any(
+                    vol.All(
+                        vol.Contains(CONF_DEFAULT),
+                        lambda x: {key: (key not in x) for key in idx_keys}
+                    ),
+                    lambda x: {key: (key in x) for key in idx_keys}
+                )
             )
         )
 
-    return sub_validator
+    return vol.All(
+        vol.Any(single_validator, lambda x: x),
+        multi_validator
+    )
 
 
-def _validator_sub_keys(val_validator: Callable[[Any], TValidated],
+def _validator_codes(val_validator: Callable[[Any], TValidated],
+                     val_default: Any,
+                     code_validator: Callable[[Any], TCodeIndex]):
+    schema_validator = vol.Schema({
+        vol.Optional(CONF_DEFAULT, default=val_default): val_validator,
+        code_validator: val_validator,
+    })
+
+    if val_validator is cv.boolean:
+        schema_validator = vol.Any(
+            schema_validator,
+            vol.All(
+                [vol.Any(vol.Equal(CONF_DEFAULT), code_validator)],
+                vol.Any(
+                    vol.All(
+                        vol.Contains(CONF_DEFAULT),
+                        lambda x: {**dict.fromkeys(x, False), CONF_DEFAULT: True}
+                    ),
+                    lambda x: {**dict.fromkeys(x, True), CONF_DEFAULT: False}
+                ),
+            )
+        )
+
+    return vol.All(schema_validator, vol.Coerce(_SubValidated))
+
+
+def _validator_granular(val_validator: Callable[[Any], TValidated],
                         val_defaults: Mapping[str, TValidated],
                         idx_validators: Optional[Mapping[str, Callable[[Any], TCodeIndex]]] = None) \
         -> Callable[[Any], EntityOptionsDict]:
     if idx_validators is None:
         idx_validators = ENTITY_CODES_VALIDATORS
 
-    singular_schema = vol.All(
-        val_validator,
-        lambda x: {gl_key: _SubValidated({CONF_DEFAULT: x}) for gl_key in val_defaults.keys()}
+    multi_validator = _validator_multi(val_validator, val_defaults, idx_validators.keys())
+    granular_validator = vol.Schema({
+        vol.Optional(key, default=_SubValidated({CONF_DEFAULT: val_defaults[key]})):
+            _validator_codes(val_validator, val_defaults[key], code_validator)
+        for key, code_validator in idx_validators.items()
+    })
+
+    return vol.All(
+        vol.Any(vol.All(
+            multi_validator,
+            lambda x: {sub_key: {CONF_DEFAULT: value} for sub_key, value in x.items()}
+        ), lambda x: x),
+        granular_validator
     )
-
-    multiple_schema_dict = {}
-    for sub_key in val_defaults.keys():
-        val_default = val_defaults[sub_key]
-        sub_validator = _validator_sub_values(val_validator, val_default, idx_validators[sub_key])
-        key_schema = vol.Optional(sub_key, default=_SubValidated({CONF_DEFAULT: val_default}))
-        multiple_schema_dict[key_schema] = sub_validator
-
-    multiple_schema = vol.Schema(multiple_schema_dict)
-
-    return vol.Any(singular_schema, multiple_schema)
 
 
 TFiltered = TypeVar('TFiltered')
@@ -109,7 +162,7 @@ def _clamp_time_interval(value: timedelta):
 
 
 # Validator for entity scan intervals
-ENTITY_CONF_VALIDATORS[CONF_SCAN_INTERVAL] = _validator_sub_keys(
+ENTITY_CONF_VALIDATORS[CONF_SCAN_INTERVAL] = _validator_granular(
     vol.All(cv.positive_time_period, _clamp_time_interval),
     {
         # Same scan interval by default
@@ -120,7 +173,7 @@ ENTITY_CONF_VALIDATORS[CONF_SCAN_INTERVAL] = _validator_sub_keys(
 )
 
 # Validator for entity name formats
-ENTITY_CONF_VALIDATORS[CONF_NAME_FORMAT] = _validator_sub_keys(
+ENTITY_CONF_VALIDATORS[CONF_NAME_FORMAT] = _validator_granular(
     cv.string,
     {
         # Assign default name formats
@@ -131,7 +184,7 @@ ENTITY_CONF_VALIDATORS[CONF_NAME_FORMAT] = _validator_sub_keys(
 )
 
 # Validator for entity filtering
-ENTITY_CONF_VALIDATORS[CONF_ENTITIES] = _validator_sub_keys(
+ENTITY_CONF_VALIDATORS[CONF_ENTITIES] = _validator_granular(
     cv.boolean,
     {
         # Enable all entities by default
@@ -153,25 +206,24 @@ BASE_CONFIG_ENTRY_SCHEMA = vol.Schema(
     extra=vol.PREVENT_EXTRA
 )
 
-# Inner configuration schema (per-entry)
-CONFIG_ENTRY_SCHEMA = BASE_CONFIG_ENTRY_SCHEMA.extend(
-    {
-        # Account-related filtering
-        vol.Optional(CONF_FILTER): _validator_sub_values(cv.boolean, True, ENTITY_CODES_VALIDATORS[CONF_ACCOUNTS]),
-    },
-    extra=vol.PREVENT_EXTRA
+# Entity-related configuration
+HIERARCHICAL_OPTIONS_SCHEMA_DICT = {
+    vol.Optional(conf_key, default=validator({})): validator
+    for conf_key, validator in ENTITY_CONF_VALIDATORS.items()
+}
 
-).extend(
-    {
-        # Entity-related configuration
-        vol.Optional(conf_key, default=validator({})): validator
-        for conf_key, validator in ENTITY_CONF_VALIDATORS.items()
-    },
-    extra=vol.PREVENT_EXTRA
-)
+# Account-related filtering
+SINGLE_LEVEL_OPTIONS_SCHEMA_DICT = {
+    vol.Optional(CONF_FILTER): _validator_codes(cv.boolean, True, ENTITY_CODES_VALIDATORS[CONF_ACCOUNTS])
+}
+
+# Inner configuration schema (per-entry) (>=0.3.*)
+CONFIG_ENTRY_SCHEMA = BASE_CONFIG_ENTRY_SCHEMA \
+    .extend(HIERARCHICAL_OPTIONS_SCHEMA_DICT, extra=vol.PREVENT_EXTRA) \
+    .extend(SINGLE_LEVEL_OPTIONS_SCHEMA_DICT, extra=vol.PREVENT_EXTRA)
 
 
-# Previous versions compatibility layer
+# Previous versions compatibility layer (<0.3.*)
 def _adapt_old_config_entry_schema(options: Mapping[str, Any]):
     _LOGGER.warning('You are using a deprecated configuration format for username "%s"! Configuration '
                     'format used in 0.2.* is deprecated in 0.3.*, and will be removed in 0.3.5!',
@@ -273,7 +325,10 @@ OLD_CONFIG_ENTRY_SCHEMA = vol.All(
 # Outer configuration schema (per-domain)
 CONFIG_SCHEMA = vol.Schema(
     {
-        DOMAIN: vol.All(cv.ensure_list, [vol.Any(CONFIG_ENTRY_SCHEMA, OLD_CONFIG_ENTRY_SCHEMA)], vol.Length(min=1))
+        DOMAIN: vol.Any(
+            vol.Equal({}),
+            vol.All(cv.ensure_list, [vol.Any(CONFIG_ENTRY_SCHEMA, OLD_CONFIG_ENTRY_SCHEMA)], vol.Length(min=1))
+        )
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -339,7 +394,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 @bind_hass
 @callback
 def async_handle_unsupported_accounts(hass: HomeAssistantType, username: str,
-                                      unsupported_accounts: Collection[Mapping[str, Any]]):
+                                      unsupported_accounts: Collection[Mapping[str, Any]]) -> bool:
     from custom_components.mosenergosbyt.api import Provider, ServiceType
 
     singular = len(unsupported_accounts) == 1
@@ -376,7 +431,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
     username = config_entry.data[CONF_USERNAME]
 
     # Check if leftovers from previous setup are present
-    if username in hass.data.get(DATA_FINAL_CONFIG, {}):
+    if config_entry.entry_id in hass.data.get(DATA_FINAL_CONFIG, {}):
         raise ConfigEntryNotReady('Configuration entry with username "%s" already set up' % (username,))
 
     # Source full configuration
@@ -397,7 +452,12 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
 
     else:
         # Source and convert configuration from input data
-        user_cfg = CONFIG_ENTRY_SCHEMA({**config_entry.data, **(config_entry.options or {})})
+        all_cfg = {**config_entry.data}
+
+        if config_entry.options:
+            all_cfg.update(config_entry.options)
+
+        user_cfg = CONFIG_ENTRY_SCHEMA(all_cfg)
 
     _LOGGER.info('Setting up config entry for user "%s"' % username)
 
@@ -433,13 +493,15 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
         _LOGGER.warning('No supported accounts found under username "%s"', username)
         return False
 
+    entry_id = config_entry.entry_id
+
     # Create data placeholders
-    hass.data.setdefault(DATA_API_OBJECTS, {})[config_entry.entry_id] = api_object
-    hass.data.setdefault(DATA_ENTITIES, {})[config_entry.entry_id] = {}
-    hass.data.setdefault(DATA_UPDATERS, {})[config_entry.entry_id] = {}
+    hass.data.setdefault(DATA_API_OBJECTS, {})[entry_id] = api_object
+    hass.data.setdefault(DATA_ENTITIES, {})[entry_id] = {}
+    hass.data.setdefault(DATA_UPDATERS, {})[entry_id] = {}
 
     # Save final configuration data
-    hass.data.setdefault(DATA_FINAL_CONFIG, {})[username] = user_cfg
+    hass.data.setdefault(DATA_FINAL_CONFIG, {})[entry_id] = user_cfg
 
     # Forward entry setup to sensor platform
     hass.async_create_task(
@@ -449,29 +511,38 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
         )
     )
 
+    hass.data.setdefault(DATA_UPDATE_LISTENERS, {})[entry_id] = \
+        config_entry.add_update_listener(async_reload_entry)
+
     _LOGGER.debug('Successfully set up user "%s"' % username)
     return True
 
 
-async def async_unload_entry(hass: HomeAssistantType, config_entry: config_entries.ConfigEntry):
+async def async_reload_entry(hass: HomeAssistantType, config_entry: config_entries.ConfigEntry) -> None:
+    """Reload Mosenergosbyt entry"""
+    _LOGGER.info(_make_log_prefix(config_entry, 'setup') + 'Reloading configuration entry')
+    await hass.config_entries.async_reload(config_entry.entry_id)
+
+
+async def async_unload_entry(hass: HomeAssistantType, config_entry: config_entries.ConfigEntry) -> bool:
+    """Unload Mosenergosbyt entry"""
+    log_prefix = _make_log_prefix(config_entry, 'setup')
     entry_id = config_entry.entry_id
 
-    if DATA_API_OBJECTS in hass.data and entry_id in hass.data[DATA_API_OBJECTS]:
-        # Remove API objects
-        del hass.data[DATA_API_OBJECTS][entry_id]
-        if not hass.data[DATA_API_OBJECTS]:
-            del hass.data[DATA_API_OBJECTS]
+    unload_ok = await hass.config_entries.async_forward_entry_unload(
+        config_entry,
+        SENSOR_DOMAIN
+    )
 
-    if DATA_ENTITIES in hass.data and entry_id in hass.data[DATA_ENTITIES]:
-        # Remove references to created entities
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_unload(
-                config_entry,
-                SENSOR_DOMAIN
-            )
-        )
+    if unload_ok:
+        hass.data[DATA_API_OBJECTS].pop(entry_id)
+        hass.data[DATA_FINAL_CONFIG].pop(entry_id)
+        cancel_listener = hass.data[DATA_UPDATE_LISTENERS].pop(entry_id)
+        cancel_listener()
 
-    username = config_entry.data[CONF_USERNAME]
+        _LOGGER.info(log_prefix + 'Unloaded configuration entry')
 
-    if DATA_FINAL_CONFIG in hass.data and username in hass.data[DATA_FINAL_CONFIG]:
-        del hass.data[DATA_FINAL_CONFIG][entry_id]
+    else:
+        _LOGGER.warning(log_prefix + 'Failed to unload configuration entry')
+
+    return unload_ok

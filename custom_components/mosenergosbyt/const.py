@@ -56,10 +56,11 @@ CONF_NAME_FORMAT = "name_format"
 CONF_USER_AGENT = "user_agent"
 
 DATA_API_OBJECTS = DOMAIN + "_api_objects"
-DATA_YAML_CONFIG = DOMAIN + "_yaml_config"
-DATA_FINAL_CONFIG = DOMAIN + "_final_config"
 DATA_ENTITIES = DOMAIN + "_entities"
+DATA_FINAL_CONFIG = DOMAIN + "_final_config"
 DATA_UPDATERS = DOMAIN + "_updaters"
+DATA_UPDATE_LISTENERS = DOMAIN + '_update_listeners'
+DATA_YAML_CONFIG = DOMAIN + "_yaml_config"
 
 DEFAULT_NAME_FORMAT_ACCOUNTS = "MES Account {code}"
 DEFAULT_NAME_FORMAT_INVOICES = "MES Invoice {code}"

@@ -13,8 +13,9 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, CONF_SCAN_INTERVAL, ATTR_ENTITY_ID, STATE_OK, \
-    STATE_LOCKED, STATE_UNKNOWN, ATTR_ATTRIBUTION, ATTR_NAME, ATTR_SERVICE, CONF_ENTITIES
+from homeassistant.const import CONF_SCAN_INTERVAL, ATTR_ENTITY_ID, STATE_OK, \
+    STATE_LOCKED, STATE_UNKNOWN, ATTR_ATTRIBUTION, ATTR_NAME, ATTR_SERVICE, CONF_ENTITIES, CONF_DEFAULT
+from homeassistant.core import callback
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import Entity
@@ -23,6 +24,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType, StateType
 from homeassistant.util.dt import as_local, utcnow
 
+from custom_components.mosenergosbyt import _make_log_prefix
 from custom_components.mosenergosbyt.api import API, MosenergosbytException, BaseAccount, \
     Invoice, IndicationsCountException, SubmittableMeter, BaseMeter, MOEGenericMeter, ActionNotSupportedException
 from custom_components.mosenergosbyt.const import *
@@ -133,13 +135,11 @@ def get_update_function_names(entity_cls: Type['MESEntity']) -> List[str]:
     return update_services
 
 
-def register_update_services(entity_cls: Type['MESEntity'], platform: EntityPlatform) -> None:
+def register_update_services(entity_cls: Type['MESEntity'], platform: EntityPlatform, log_prefix: str = '') -> None:
     update_function_names = get_update_function_names(entity_cls)
 
     if update_function_names:
-        _LOGGER.debug('Registering %d update services for "%s" entity class',
-                      len(update_function_names),
-                      entity_cls.__name__)
+        _LOGGER.debug(log_prefix + f'Registering {len(update_function_names)} update services')
 
         for update_function_name in update_function_names:
             service_name = update_function_name
@@ -150,290 +150,286 @@ def register_update_services(entity_cls: Type['MESEntity'], platform: EntityPlat
             if service_name.startswith('async_'):
                 service_name = service_name[6:]
 
-            _LOGGER.info('Registering update service "%s" -> "%s"', service_name, update_function_name)
+            _LOGGER.info(log_prefix + f'Registering update service "{service_name}" -> "{update_function_name}"')
             platform.async_register_entity_service(service_name, {}, update_function_name,)
 
     else:
-        _LOGGER.debug('No update services for "%s" entity class found',
-                      entity_cls.__name__)
+        _LOGGER.debug(log_prefix + 'No update services found')
 
 
-async def async_discover_meters(hass: HomeAssistantType,
-                                config_entry: ConfigEntry,
-                                config: ConfigType,
-                                platform: EntityPlatform,
-                                existing_entities: Mapping[Type['MESEntity'], List['MESEntity']],
-                                name_formats: Mapping[str, Mapping[str, str]],
-                                scan_intervals: Mapping[str, Mapping[str, timedelta]],
-                                entity_filter: Mapping[str, Mapping[str, bool]],
-                                accounts: List['BaseAccount']) -> DiscoveryReturnType:
+TObject = TypeVar('TObject', bound=object)
+TIdentifier = TypeVar('TIdentifier')
+
+
+@callback
+async def _common_discover_entities(
+        current_entity_platform: EntityPlatform,
+        config_entry: ConfigEntry,
+        source_objects: Iterable[TObject],
+        object_code_getter: Callable[[TObject], TIdentifier],
+        entity_cls: Type[TSensor],
+        final_config: Optional[ConfigType] = None,
+        existing_entities: Optional[List[TSensor]] = None,
+        sensor_type_name: Optional[str] = None,
+        entity_code_getter: Callable[[TSensor], TIdentifier] = None,
+        log_prefix: Optional[str] = None,
+) -> DiscoveryReturnType:
+    """
+    Common entity discovery helper.
+    :param current_entity_platform: Entity platform used
+    :param config_entry: Configuration entry
+    :param final_config: Final configuration data
+    :param source_objects: Objects to use when creating entities
+    :param object_code_getter: Getter for identifier for objects
+    :param entity_cls: Entity class (subclass of `MESEntity`)
+    :param existing_entities: (optional) Existing entities list
+                              (default: retrieved at runtime)
+    :param sensor_type_name: (optional) Sensor type name for log prefixing
+                             (default: derrived from configuration key)
+    :param entity_code_getter: (optional) Getter for identifier for entities
+                               (default: `code` property of provided entity class)
+    :param log_prefix: (optional) Log prefix to prepend to internal loggin
+                       (default: empty string)
+    :return: Tuple[new entities list, async tasks]
+    """
+    hass = current_entity_platform.hass
+    config_key = entity_cls.config_key
+
+    if final_config is None:
+        final_config = hass.data.get(DATA_FINAL_CONFIG, {}).get(config_entry.entry_id)
+        if final_config is None:
+            raise ValueError('Final configuration not available for entry "%s"' % (config_entry.entry_id,))
+
+    if sensor_type_name is None:
+        sensor_type_name = config_key
+        if sensor_type_name.endswith('s'):
+            sensor_type_name = sensor_type_name[:-1]
+
+    if log_prefix is None:
+        log_prefix = _make_log_prefix(
+            config_entry,
+            current_entity_platform,
+            'discvr', sensor_type_name
+        )
+
+    if entity_code_getter is None:
+        entity_code_getter = entity_cls.code
+
+    if current_entity_platform is None:
+        current_entity_platform = entity_platform.current_platform.get()
+
+    if existing_entities is None:
+        existing_entities = hass.data\
+            .get(DATA_ENTITIES, {})\
+            .get(config_entry.entry_id, {})\
+            .get(config_key, [])
+
     entities = []
     tasks = []
 
-    meters_name_formats = name_formats[CONF_METERS]
-    meters_scan_intervals = scan_intervals[CONF_METERS]
-    meters_entity_filter = entity_filter[CONF_METERS]
+    added_entities: Set[TSensor] = set(existing_entities or [])
 
-    added_entities: Set[MESMeterSensor] = set(existing_entities.get(MESMeterSensor, []))
+    entity_filter = final_config[CONF_ENTITIES][config_key]
+    name_formats = final_config[CONF_NAME_FORMAT][config_key]
+    scan_intervals = final_config[CONF_SCAN_INTERVAL][config_key]
 
-    meter_lists = await asyncio.gather(*map(lambda account: account.get_meters(), accounts))
+    for iter_object in source_objects:
+        identifier = object_code_getter(iter_object)
+        granular_log_prefix = _make_log_prefix(
+            config_entry,
+            current_entity_platform,
+            'discvr',
+            sensor_type_name.ljust(7),
+            '*' + identifier[-5:]
+        )
 
-    for meters in meter_lists:
-        for meter in meters:
-            meter_code = meter.meter_code
+        if not entity_filter[identifier]:
+            _LOGGER.info(granular_log_prefix + 'Skipping setup/update due to filter')
+            continue
 
-            if not meters_entity_filter[meter_code]:
-                _LOGGER.info('Skipping meter entity "%s" setup/update due to filter', meter_code)
-                continue
+        obj_entity = None
 
-            meter_entity = None
+        for entity in added_entities:
+            if entity_code_getter(entity) == identifier:
+                obj_entity = entity
+                break
 
-            for entity in added_entities:
-                if entity.meter.meter_code == meter_code:
-                    meter_entity = entity
-                    break
+        entity_log_prefix = _make_log_prefix(
+            config_entry,
+            current_entity_platform,
+            'entity',
+            sensor_type_name.ljust(7),
+            '*' + identifier[-5:]
+        )
 
-            if meter_entity is None:
-                _LOGGER.info('Setting up meter entity "%s"', meter_code)
-                entities.append(
-                    MESMeterSensor(
-                        name_format=meters_name_formats[meter_code],
-                        scan_interval=meters_scan_intervals[meter_code],
-                        meter=meter
-                    )
+        if obj_entity is None:
+            _LOGGER.debug(granular_log_prefix + 'Setting up entity')
+            entities.append(
+                entity_cls.async_discover_create(
+                    iter_object,
+                    name_formats[identifier],
+                    scan_intervals[identifier],
+                    entity_log_prefix
                 )
+            )
 
-            else:
-                added_entities.remove(meter_entity)
-                if meter_entity.enabled:
-                    _LOGGER.debug('Updating meter entity "%s"', meter_code)
+        else:
+            added_entities.remove(obj_entity)
 
-                    meter_entity.name_format = meters_name_formats[meter_code]
-                    meter_entity.scan_interval = meters_scan_intervals[meter_code]
+            if obj_entity.enabled:
+                _LOGGER.debug(granular_log_prefix + 'Updating entity')
+                update_task = obj_entity.async_discover_update(
+                    iter_object,
+                    name_formats[identifier],
+                    scan_intervals[identifier],
+                    entity_log_prefix
+                )
+                if update_task is not None:
+                    tasks.append(update_task)
 
-                    meter_entity.async_schedule_update_ha_state(force_refresh=True)
+    if entities:
+        register_update_services(entity_cls, current_entity_platform, log_prefix)
 
     if added_entities:
-        _LOGGER.info('Removing %d meter entities: "%s"',
-                     len(added_entities),
-                     '", "'.join([
-                         leftover_entity.meter.meter_code
-                         for leftover_entity in added_entities
-                     ]))
+        _LOGGER.info(log_prefix + f'Removing {len(added_entities)} {sensor_type_name} entities')
 
         tasks.extend(get_remove_tasks(hass, added_entities))
 
-    if entities:
-        _LOGGER.info('Registering meter services')
+    return entities, tasks
 
-        platform.async_register_entity_service(
+
+async def async_discover_accounts(
+        current_entity_platform: EntityPlatform,
+        config_entry: ConfigEntry,
+        final_config: ConfigType,
+        accounts: Iterable[BaseAccount],
+) -> DiscoveryReturnType:
+    """Accounts discovery"""
+    return await _common_discover_entities(
+        current_entity_platform=current_entity_platform,
+        config_entry=config_entry,
+        final_config=final_config,
+        source_objects=accounts,
+        object_code_getter=lambda x: x.account_code,
+        entity_code_getter=lambda x: x.account.account_code,
+        entity_cls=MESAccountSensor,
+    )
+
+
+async def async_discover_meters(
+        current_entity_platform: EntityPlatform,
+        config_entry: ConfigEntry,
+        final_config: ConfigType,
+        accounts: Iterable[BaseAccount],
+) -> DiscoveryReturnType:
+    """Meters discovery"""
+    meter_lists = await asyncio.gather(*map(lambda account: account.get_meters(), accounts))
+
+    meters = []
+    for meter_list in meter_lists:
+        meters.extend(meter_list)
+
+    if current_entity_platform is None:
+        current_entity_platform = entity_platform.current_platform.get()
+
+    entities, tasks = await _common_discover_entities(
+        current_entity_platform=current_entity_platform,
+        config_entry=config_entry,
+        final_config=final_config,
+        source_objects=meters,
+        object_code_getter=lambda x: x.meter_code,
+        entity_code_getter=lambda x: x.meter.meter_code,
+        entity_cls=MESMeterSensor,
+    )
+
+    if entities:
+        current_entity_platform.async_register_entity_service(
             SERVICE_CALCULATE_INDICATIONS,
             SERVICE_CALCULATE_INDICATIONS_SCHEMA,
             "async_calculate_indications"
         )
 
-        platform.async_register_entity_service(
+        current_entity_platform.async_register_entity_service(
             SERVICE_PUSH_INDICATIONS,
             SERVICE_PUSH_INDICATIONS_PAYLOAD_SCHEMA,
             "async_push_indications"
         )
 
-        register_update_services(MESMeterSensor, platform)
-
     return entities, tasks
 
 
-async def async_discover_invoices(hass: HomeAssistantType,
-                                  config_entry: ConfigEntry,
-                                  config: ConfigType,
-                                  platform: EntityPlatform,
-                                  existing_entities: Mapping[Type['MESEntity'], List['MESEntity']],
-                                  name_formats: Mapping[str, Mapping[str, str]],
-                                  scan_intervals: Mapping[str, Mapping[str, timedelta]],
-                                  entity_filter: Mapping[str, Mapping[str, bool]],
-                                  accounts: List['BaseAccount']) -> DiscoveryReturnType:
-    entities = []
-    tasks = []
-
-    invoices_name_formats = name_formats[CONF_INVOICES]
-    invoices_scan_intervals = scan_intervals[CONF_INVOICES]
-    invoices_entity_filter = entity_filter[CONF_INVOICES]
-
-    added_entities: Set[MESInvoiceSensor] = set(existing_entities.get(MESInvoiceSensor, []))
-
-    for account in accounts:
-        account_code = account.account_code
-
-        if not invoices_entity_filter[account_code]:
-            _LOGGER.info('Skipping invoice entity "%s" setup/update due to filter', account_code)
-            continue
-
-        invoice_entity = None
-
-        for entity in added_entities:
-            if entity.account.account_code == account_code:
-                invoice_entity = entity
-                break
-
-        if invoice_entity is None:
-            _LOGGER.info('Setting up invoice entity "%s"', account_code)
-            entities.append(
-                MESInvoiceSensor(
-                    name_format=invoices_name_formats[account_code],
-                    scan_interval=invoices_scan_intervals[account_code],
-                    account=account,
-                )
-            )
-
-        else:
-            added_entities.remove(invoice_entity)
-            if invoice_entity.enabled:
-                _LOGGER.info('Updating invoice entity "%s"', account_code)
-
-                invoice_entity.name_format = invoices_name_formats[account_code]
-                invoice_entity.scan_interval = invoices_scan_intervals[account_code]
-
-                invoice_entity.async_schedule_update_ha_state(force_refresh=True)
-
-    if entities:
-        register_update_services(MESInvoiceSensor, platform)
-
-    if added_entities:
-        _LOGGER.info('Removing %d invoice entities: "%s"',
-                     len(added_entities),
-                     '", "'.join([
-                         leftover_entity.account.account_code
-                         for leftover_entity in added_entities
-                     ]))
-
-        tasks.extend(get_remove_tasks(hass, added_entities))
-
-    return entities, tasks
+async def async_discover_invoices(
+        current_entity_platform: EntityPlatform,
+        config_entry: ConfigEntry,
+        final_config: ConfigType,
+        accounts: Iterable[BaseAccount],
+) -> DiscoveryReturnType:
+    """Invoices discovery"""
+    return await _common_discover_entities(
+        current_entity_platform=current_entity_platform,
+        config_entry=config_entry,
+        final_config=final_config,
+        source_objects=accounts,
+        object_code_getter=lambda x: x.account_code,
+        entity_code_getter=lambda x: x.account.account_code,
+        entity_cls=MESInvoiceSensor,
+    )
 
 
-async def async_discover_accounts(hass: HomeAssistantType,
-                                  config_entry: ConfigEntry,
-                                  config: ConfigType,
-                                  platform: EntityPlatform,
-                                  existing_entities: Mapping[Type['MESEntity'], List['MESEntity']],
-                                  name_formats: Mapping[str, Mapping[str, str]],
-                                  scan_intervals: Mapping[str, Mapping[str, timedelta]],
-                                  entity_filter: Mapping[str, Mapping[str, bool]],
-                                  accounts: List['BaseAccount']) -> DiscoveryReturnType:
-    entities = []
-    tasks = []
+async def async_discover(
+        current_entity_platform: EntityPlatform,
+        config_entry: ConfigEntry,
+        final_config: ConfigType,
+        async_add_devices: Callable[[List[Entity], bool], Any]
+) -> None:
+    log_prefix = _make_log_prefix(config_entry, current_entity_platform, 'discvr')
 
-    accounts_name_formats = name_formats[CONF_ACCOUNTS]
-    accounts_scan_intervals = scan_intervals[CONF_ACCOUNTS]
-    accounts_entity_filter = entity_filter[CONF_ACCOUNTS]
-
-    added_entities: Set[MESAccountSensor] = set(existing_entities.get(MESAccountSensor, []))
-
-    for account in accounts:
-        account_code = account.account_code
-
-        if not accounts_entity_filter[account_code]:
-            _LOGGER.info('Skipping account entity "%s" setup/update due to filter', account_code)
-            continue
-
-        account_entity = None
-
-        for entity in added_entities:
-            if entity.account.account_code == account_code:
-                account_entity = entity
-                break
-
-        if account_entity is None:
-            _LOGGER.info('Setting up account entity "%s"', account_code)
-            entities.append(
-                MESAccountSensor(
-                    name_format=accounts_name_formats[account_code],
-                    scan_interval=accounts_scan_intervals[account_code],
-                    account=account,
-                )
-            )
-
-        else:
-            added_entities.remove(account_entity)
-            if account_entity.enabled:
-                _LOGGER.info('Updating account entity "%s"', account_code)
-
-                account_entity.name_format = accounts_name_formats[account_code]
-                account_entity.scan_interval = accounts_scan_intervals[account_code]
-
-                # This way account object is re-used
-                tasks.append(
-                    hass.async_create_task(
-                        account_entity.async_update_all(
-                            write_ha_state=True,
-                            account=account,
-                        )
-                    )
-                )
-
-    if entities:
-        register_update_services(MESAccountSensor, platform)
-
-    if added_entities:
-        _LOGGER.info('Removing %d account entities: "%s"',
-                     len(added_entities),
-                     '", "'.join([
-                         leftover_entity.account.account_code
-                         for leftover_entity in added_entities
-                     ]))
-
-        tasks.extend(get_remove_tasks(hass, added_entities))
-
-    return entities, tasks
-
-
-async def async_discover(hass: HomeAssistantType, config_entry: ConfigEntry,
-                         user_cfg: ConfigType, async_add_devices: Callable[[List[Entity], bool], Any]) -> None:
+    hass = current_entity_platform.hass
     api: Optional[API] = hass.data.get(DATA_API_OBJECTS, {}).get(config_entry.entry_id)
 
     if api is None:
-        _LOGGER.error('API object not yet present')
+        _LOGGER.error(log_prefix + 'API object not yet present')
         raise PlatformNotReady
 
-    platform = entity_platform.current_platform.get()
-
-    if platform is None:
-        _LOGGER.error('Entity platform is empty')
-        raise PlatformNotReady
+    _LOGGER.debug(log_prefix + 'Begin entity discovery')
 
     # Fetch necessary data: Accounts
-    accounts = await api.get_accounts(return_unsupported_accounts=False, suppress_unsupported_logging=True)
+    accounts: List[BaseAccount] = await api.get_accounts(
+        return_unsupported_accounts=False,
+        suppress_unsupported_logging=True
+    )
+
+    _LOGGER.debug(log_prefix + f'Fetched {len(accounts)} accounts')
 
     # Account post-fetch filtering
-    if CONF_FILTER in user_cfg:
-        accounts_filter = user_cfg[CONF_FILTER]
-        accounts = [account for account in accounts if accounts_filter[account.account_code]]
+    if CONF_FILTER in final_config:
+        accounts_filter = final_config[CONF_FILTER]
+        accounts = [
+            account
+            for account in accounts
+            if accounts_filter[account.account_code]
+        ]
 
-    # Prepare entity discovery call arguments
-    existing_entities = hass.data.get(DATA_ENTITIES, {}).get(config_entry.entry_id, {})
-    scan_intervals = user_cfg[CONF_SCAN_INTERVAL]
-    name_formats = user_cfg[CONF_NAME_FORMAT]
-    entity_filter = user_cfg[CONF_ENTITIES]
+        _LOGGER.info(log_prefix + f'Processing {len(accounts)} accounts after filtering')
 
     # Execute entity discovery calls
     tasks = [
         hass.async_create_task(
             async_discover_func(
-                hass=hass,
+                current_entity_platform=current_entity_platform,
                 config_entry=config_entry,
-                config=user_cfg,
-                platform=platform,
-                existing_entities=existing_entities,
-                name_formats=name_formats,
-                scan_intervals=scan_intervals,
-                entity_filter=entity_filter,
-                accounts=accounts,
+                final_config=final_config,
+                accounts=accounts
             )
         )
         for async_discover_func in (async_discover_accounts, async_discover_invoices, async_discover_meters)
     ]
 
+    _LOGGER.debug(log_prefix + f'Calling {len(tasks)} discovery sub-functions')
+
     await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+
+    _LOGGER.debug(log_prefix + 'Discovery sub-functions calling finished')
 
     # Collect new entities and internal tasks
     new_entities = []
@@ -446,34 +442,37 @@ async def async_discover(hass: HomeAssistantType, config_entry: ConfigEntry,
 
     # Wait until internal tasks are complete (if present)
     if new_tasks:
+        _LOGGER.debug(log_prefix + f'Executing {len(new_tasks)} scheduled async tasks')
         await asyncio.wait(tasks)
 
     # Add new entities to HA registry (if present)
     if new_entities:
+        _LOGGER.debug(log_prefix + f'Adding {len(new_entities)} new entities')
         async_add_devices(new_entities, True)
 
-    _LOGGER.debug('Entity discovery complete for username "%s"', user_cfg[CONF_USERNAME])
+    _LOGGER.debug(log_prefix + 'End entity discovery')
 
 
 async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry, async_add_devices):
-    username = config_entry.data[CONF_USERNAME]
+    current_entity_platform = entity_platform.current_platform.get()
+    final_config = hass.data.get(DATA_FINAL_CONFIG, {}).get(config_entry.entry_id)
 
-    user_cfg = hass.data.get(DATA_FINAL_CONFIG, {}).get(username)
+    log_prefix = _make_log_prefix(config_entry, current_entity_platform, 's')
 
-    if user_cfg is None:
-        _LOGGER.error('Final configuration not yet present')
+    if final_config is None:
+        _LOGGER.error(log_prefix + 'Final configuration not yet present')
         raise PlatformNotReady
 
-    username = user_cfg[CONF_USERNAME]
-
-    _LOGGER.debug('Setting up entry for username "%s" from sensors' % username)
+    _LOGGER.debug(log_prefix + 'Begin entry setup')
 
     await async_discover(
-        hass=hass,
+        current_entity_platform=current_entity_platform,
         config_entry=config_entry,
-        user_cfg=user_cfg,
+        final_config=final_config,
         async_add_devices=async_add_devices
     )
+
+    _LOGGER.debug(log_prefix + 'End entry setup')
 
 
 class NameFormatDict(dict):
@@ -482,11 +481,14 @@ class NameFormatDict(dict):
 
 
 class MESEntity(Entity):
-    def __init__(self, name_format: str, scan_interval: timedelta):
+    config_key: str = NotImplemented
+
+    def __init__(self, name_format: str, scan_interval: timedelta, log_prefix: str):
         self.name_format = name_format
         self.scan_interval = scan_interval
         self.entity_updater: Optional[Callable[[], Any]] = None
         self._update_counters: Dict[str, int] = {}
+        self.log_prefix = log_prefix
 
     @staticmethod
     def wrap_update_segment(fn: Callable):
@@ -496,16 +498,20 @@ class MESEntity(Entity):
         if segment.startswith('update_'):
             segment = segment[7:]
 
+        segment_name = segment.replace('_', ' ').lower()
+
         @functools.wraps(fn)
         async def _internal(self: MESEntity, *args, write_ha_state: bool = True, **kwargs):
             counter = self._update_counters.get(segment, 0) + 1
             self._update_counters[segment] = counter
 
-            _LOGGER.info(self._log_prefix + 'Begin updating "%s" segment (%d)', segment, counter)
+            postfix = 'all segments' if segment == 'all' else segment_name + ' segment'
+
+            _LOGGER.debug(self.log_prefix + f'Begin updating {postfix} ({counter})')
 
             result = await fn(self, *args, **kwargs)
 
-            _LOGGER.info(self._log_prefix + 'Finished updating "%s" segment (%d)', segment, counter)
+            _LOGGER.debug(self.log_prefix + f'Finished updating {postfix} ({counter})')
 
             if write_ha_state:
                 self.async_write_ha_state()
@@ -533,15 +539,11 @@ class MESEntity(Entity):
             **(self.sensor_related_attributes or {})
         }
 
-    @property
-    def _log_prefix(self):
-        return ('[%s][%s] ' % (self.device_class.replace(DOMAIN + '_', '', 1), self.code)).replace('%', '%%')
-
     def _log_unsupported(self, action: str, attribute: str, exception: Exception):
         message = 'Did not add %s (attribute: %s)' % (action, attribute)
         if exception.args:
             message += ' (reason: %s)' % (exception,)
-        _LOGGER.debug(self._log_prefix + message)
+        _LOGGER.debug(self.log_prefix + message)
 
     @property
     def name(self) -> Optional[str]:
@@ -580,11 +582,11 @@ class MESEntity(Entity):
         raise NotImplementedError
 
     async def async_added_to_hass(self) -> None:
-        _LOGGER.info(self._log_prefix + 'Adding to HomeAssistant')
+        _LOGGER.info(self.log_prefix + 'Adding to HomeAssistant')
         entities = self.hass.data\
             .setdefault(DATA_ENTITIES, {})\
             .setdefault(self.registry_entry.config_entry_id, {})\
-            .setdefault(self.__class__, [])
+            .setdefault(self.config_key, [])
 
         if self not in entities:
             entities.append(self)
@@ -592,20 +594,20 @@ class MESEntity(Entity):
         self.restart_updater()
 
     async def async_will_remove_from_hass(self) -> None:
-        _LOGGER.info(self._log_prefix + 'Removing from HomeAssistant')
+        _LOGGER.info(self.log_prefix + 'Removing from HomeAssistant')
         self.stop_updater()
 
         entities = self.hass.data\
             .get(DATA_ENTITIES, {})\
             .get(self.registry_entry.config_entry_id, {})\
-            .get(self.__class__, [])
+            .get(self.config_key, [])
 
         if self in entities:
             entities.remove(self)
 
     def stop_updater(self) -> None:
         if self.entity_updater is not None:
-            _LOGGER.info(self._log_prefix + 'Stopping updater')
+            _LOGGER.debug(self.log_prefix + 'Stopping updater')
             self.entity_updater()
             self.entity_updater = None
 
@@ -616,8 +618,9 @@ class MESEntity(Entity):
             nonlocal self
             self.async_schedule_update_ha_state(force_refresh=True)
 
-        _LOGGER.info(self._log_prefix + 'Starting updater (interval: %s seconds, next call: %s)',
-                     self.scan_interval.total_seconds(), as_local(utcnow()) + self.scan_interval)
+        _LOGGER.debug(self.log_prefix + f'Starting updater '
+                                        f'(interval: {self.scan_interval.total_seconds()} seconds, '
+                                        f'next call: {as_local(utcnow()) + self.scan_interval})')
         self.entity_updater = async_track_time_interval(self.hass, _update_entity, self.scan_interval)
 
     async def async_update(self) -> None:
@@ -631,9 +634,33 @@ class MESEntity(Entity):
     async def async_update_all(self) -> None:
         raise NotImplementedError
 
+    @staticmethod
+    @callback
+    def async_discover_create(source: 'TObject',
+                              name_format: str,
+                              scan_interval: timedelta,
+                              log_prefix: str)\
+            -> 'MESEntity':
+        raise NotImplementedError
+
+    @callback
+    def async_discover_update(self,
+                              source: 'TObject',
+                              name_format: str,
+                              scan_interval: timedelta,
+                              log_prefix: str)\
+            -> Optional[asyncio.Task]:
+        raise NotImplementedError
+
+    @callback
+    def async_discover_schedule_update(self) -> Optional[asyncio.Task]:
+        self.async_schedule_update_ha_state(force_refresh=True)
+        return
+
 
 class MESAccountSensor(MESEntity):
     """The class for this sensor"""
+    config_key = CONF_ACCOUNTS
 
     def __init__(self, *args, account: 'BaseAccount', current_balance: Optional[float] = None,
                  last_payment: Optional[Mapping[str, Any]] = None,
@@ -784,9 +811,38 @@ class MESAccountSensor(MESEntity):
             self.async_update_submission_availability(submission_availability, write_ha_state=False),
         )))
 
+    @staticmethod
+    @callback
+    def async_discover_create(source: 'BaseAccount',
+                              name_format: str,
+                              scan_interval: timedelta,
+                              log_prefix: str)\
+            -> 'MESAccountSensor':
+        return MESAccountSensor(name_format=name_format,
+                                scan_interval=scan_interval,
+                                log_prefix=log_prefix,
+                                account=source)
+
+    @callback
+    def async_discover_update(self, source: 'BaseAccount', name_format: str, scan_interval: timedelta, log_prefix: str) -> None:
+        self.account = source
+        self.name_format = name_format
+        self.scan_interval = scan_interval
+        self.log_prefix = log_prefix
+
+    @callback
+    def async_discover_schedule_update(self) -> Optional[asyncio.Task]:
+        return self.hass.async_create_task(
+            self.async_update_all(
+                write_ha_state=True,
+                account=self.account,
+            )
+        )
+
 
 class MESMeterSensor(MESEntity):
     """The class for this sensor"""
+    config_key = CONF_METERS
 
     def __init__(self, *args, meter: 'BaseMeter', **kwargs):
         super().__init__(*args, **kwargs)
@@ -1024,7 +1080,7 @@ class MESMeterSensor(MESEntity):
         :param call_data: Parameters for service call
         :return:
         """
-        _LOGGER.info(self._log_prefix + 'Begin handling indications submission')
+        _LOGGER.info(self.log_prefix + 'Begin handling indications submission')
 
         meter_code = self.meter.meter_code
 
@@ -1058,7 +1114,7 @@ class MESMeterSensor(MESEntity):
             finally:
                 self._fire_callback_event(call_data, event_data, EVENT_PUSH_RESULT, 'Передача показаний')
 
-            _LOGGER.info(self._log_prefix + 'End handling indications submission')
+            _LOGGER.info(self.log_prefix + 'End handling indications submission')
 
             if not event_data.get(ATTR_SUCCESS):
                 raise Exception(event_data[ATTR_COMMENT] or 'comment not provided')
@@ -1066,7 +1122,7 @@ class MESMeterSensor(MESEntity):
     async def async_calculate_indications(self, **call_data):
         meter_code = self.meter.meter_code
 
-        _LOGGER.info(self._log_prefix + 'Begin handling indications calculation')
+        _LOGGER.info(self.log_prefix + 'Begin handling indications calculation')
 
         if not isinstance(self.meter, SubmittableMeter):
             raise Exception('Meter \'%s\' does not support indications calculation' % (meter_code,))
@@ -1104,13 +1160,39 @@ class MESMeterSensor(MESEntity):
         finally:
             self._fire_callback_event(call_data, event_data, EVENT_CALCULATION_RESULT, 'Подсчёт показаний')
 
-        _LOGGER.info(self._log_prefix + 'End handling indications calculation')
+        _LOGGER.info(self.log_prefix + 'End handling indications calculation')
 
         if not event_data.get(ATTR_SUCCESS):
             raise Exception(event_data[ATTR_COMMENT] or 'comment not provided')
 
+    @staticmethod
+    @callback
+    def async_discover_create(source: 'BaseMeter',
+                              name_format: str,
+                              scan_interval: timedelta,
+                              log_prefix: str)\
+            -> 'MESMeterSensor':
+        return MESMeterSensor(name_format=name_format,
+                              scan_interval=scan_interval,
+                              log_prefix=log_prefix,
+                              meter=source)
+
+    @callback
+    def async_discover_update(self,
+                              source: 'TObject',
+                              name_format: str,
+                              scan_interval: timedelta,
+                              log_prefix: str)\
+            -> None:
+        self.meter = source
+        self.name_format = name_format
+        self.scan_interval = scan_interval
+        self.log_prefix = log_prefix
+
 
 class MESInvoiceSensor(MESEntity):
+    config_key = CONF_INVOICES
+
     def __init__(self, *args, account: BaseAccount, invoice: Optional['Invoice'] = None, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -1185,3 +1267,26 @@ class MESInvoiceSensor(MESEntity):
     @MESEntity.wrap_update_segment
     async def async_update_all(self, invoice: Optional['Invoice'] = None):
         await self.async_update_invoice(invoice, write_ha_state=False)
+
+    @staticmethod
+    @callback
+    def async_discover_create(source: 'BaseAccount',
+                              name_format: str,
+                              scan_interval: timedelta,
+                              log_prefix: str)\
+            -> 'MESInvoiceSensor':
+        return MESInvoiceSensor(name_format=name_format,
+                                scan_interval=scan_interval,
+                                log_prefix=log_prefix,
+                                account=source)
+
+    @callback
+    def async_discover_update(self,
+                              source: 'BaseAccount',
+                              name_format: str,
+                              scan_interval: timedelta,
+                              log_prefix: str) -> None:
+        self.invoice = source
+        self.name_format = name_format
+        self.scan_interval = scan_interval
+        self.log_prefix = log_prefix

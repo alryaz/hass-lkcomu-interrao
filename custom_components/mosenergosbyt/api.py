@@ -152,6 +152,8 @@ class API:
     AUTH_URL = BASE_URL + "/auth"
     REQUEST_URL = BASE_URL + "/gate_lkcomu"
 
+    __global_requests_counter = 0
+
     def __init__(self, username: str, password: str, user_agent: Optional[str] = None, timeout: int = 5):
         self.__username = username
         self.__password = password
@@ -167,13 +169,15 @@ class API:
         self._accounts = None
         self._logged_in_at = None
 
+        self._pending_authentication_request: Optional[asyncio.Future] = None
+
         self._cookie_jar = aiohttp.CookieJar()
         self._timeout = aiohttp.ClientTimeout(total=timeout)
 
     async def request(self, action, query, post_fields: Optional[Dict] = None, method='POST',
-                      get_fields: Optional[Dict] = None, fail_on_reauth: bool = False):
-        if get_fields is None:
-            get_fields = {}
+                      get_params: Optional[Dict] = None, fail_on_reauth: bool = False):
+        if get_params is None:
+            get_params = {}
 
         if self._user_agent is None:
             try:
@@ -186,20 +190,23 @@ class API:
             except ImportError:
                 self._user_agent = DEFAULT_USER_AGENT
 
-        get_fields['action'] = action
-        get_fields['query'] = query
+        get_params['action'] = action
+        get_params['query'] = query
         if self._session_id is not None:
-            get_fields['session'] = self._session_id
+            get_params['session'] = self._session_id
 
-        encoded_params = parse.urlencode(get_fields)
+        encoded_params = parse.urlencode(get_params)
         request_url = self.REQUEST_URL + '?' + encoded_params
         response_text = None
+        counter = API.__global_requests_counter + 1
+        API.__global_requests_counter = counter
+
         try:
             async with aiohttp.ClientSession(cookie_jar=self._cookie_jar) as session:
-                _LOGGER.debug('-> (%s) %s' % (encoded_params, post_fields))
+                _LOGGER.debug('[%d] -> (%s) %s' % (counter, encoded_params, post_fields))
                 async with session.post(request_url, data=post_fields) as response:
                     response_text = await response.text(encoding='utf-8')
-                    _LOGGER.debug('<- (%d) %s' % (response.status, response_text))
+                    _LOGGER.debug('[%d] <- (%d) %s' % (counter, response.status, response_text))
                     data = json.loads(response_text)
 
         except asyncio.exceptions.TimeoutError:
@@ -223,7 +230,7 @@ class API:
             await self.login()
             return await self.request(
                 action, query, post_fields,
-                method, get_fields,
+                method, get_params,
                 fail_on_reauth=True
             )
 
@@ -233,34 +240,52 @@ class API:
     async def request_sql(self, query, post_fields: Optional[Dict] = None):
         return await self.request('sql', query, post_fields, 'POST')
 
-    def _get_cookies(self):
-        return ';'.join(self._cookie_jar)
-
     async def login(self):
-        data = await self.request('auth', 'login', {
-            'login': self.__username,
-            'psw': self.__password,
-            'remember': True,
-            'vl_device_info': json.dumps({
-                'appver': '1.8.0',
-                'type': 'browser',
-                'userAgent': self._user_agent
+        pending_request = self._pending_authentication_request
+        if pending_request:
+            if pending_request.done():
+                self._pending_authentication_request = None
+                return pending_request.result()
+
+            await pending_request
+            return pending_request.result()
+
+        self._pending_authentication_request = asyncio.get_running_loop().create_future()
+
+        try:
+            self._session_id = None
+
+            data = await self.request('auth', 'login', {
+                'login': self.__username,
+                'psw': self.__password,
+                'remember': True,
+                'vl_device_info': json.dumps({
+                    'appver': '1.8.0',
+                    'type': 'browser',
+                    'userAgent': self._user_agent
+                })
             })
-        })
 
-        # @TODO: Multiple profiles possible?
-        profile = data['data'][0]
-        if profile['id_profile'] is None:
-            raise MosenergosbytException(profile['nm_result'])
+            # @TODO: Multiple profiles possible?
+            profile = data['data'][0]
+            if profile['id_profile'] is None:
+                raise MosenergosbytException(profile['nm_result'])
 
-        self._id_profile = profile['id_profile']
-        self._session_id = profile['session']
-        self._token = profile['new_token']
+            self._id_profile = profile['id_profile']
+            self._session_id = profile['session']
+            self._token = profile['new_token']
 
-        await self.request_sql('Init')
-        await self.request_sql('NoticeRoutine')
+            await self.request_sql('Init')
+            await self.request_sql('NoticeRoutine')
 
-        self._logged_in_at = datetime.utcnow()
+            self._logged_in_at = datetime.utcnow()
+
+        except Exception as e:
+            self._pending_authentication_request.set_exception(e)
+        else:
+            self._pending_authentication_request.set_result(True)
+        finally:
+            self._pending_authentication_request = None
 
         return True
 
@@ -282,7 +307,7 @@ class API:
 
         return True
 
-    async def get_accounts(self, return_unsupported_accounts: bool = False)\
+    async def get_accounts(self, return_unsupported_accounts: bool = False, suppress_unsupported_logging: bool = False)\
             -> Union[List['BaseAccount'], Tuple[List['BaseAccount'], List[Mapping[str, Any]]]]:
         response = await self.request_sql('LSList')
 
@@ -295,10 +320,11 @@ class API:
                 account_obj = create_account_instance(account_data, self)
 
             except UnsupportedAccountException as e:
+                if not suppress_unsupported_logging:
+                    _LOGGER.warning('Unsupported account encountered: %s', e)
+
                 if return_unsupported_accounts:
                     unsupported_accounts.append(account_data)
-                else:
-                    _LOGGER.error('Unsupported account encountered: %s', e)
 
             else:
                 accounts_list.append(account_obj)
@@ -721,7 +747,7 @@ class BaseAccount(ABC):
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
         raise NotImplementedError
 
-    async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
+    async def get_submission_availability(self) -> Optional[Tuple[bool, int]]:
         raise NotImplementedError
 
 
@@ -883,7 +909,7 @@ class MESAccount(BaseAccount):
                 )
 
             else:
-                meter = self._meter_objects[meter_code]
+                meter = self._meter_objects[meter_index]
                 meter.data = meter_data
 
             keep_meter_objects.append(meter)
@@ -901,7 +927,7 @@ class MESAccount(BaseAccount):
     async def get_current_balance(self) -> float:
         return await self._common_proxy_balance('bytProxy')
 
-    async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
+    async def get_submission_availability(self) -> Optional[Tuple[bool, int]]:
         return await self._common_proxy_remaining_days('bytProxy')
 
     async def _get_indications(self, start: datetime, end: datetime) -> IndicationsList:
@@ -953,7 +979,7 @@ class TKOAccount(BaseAccount):
         response = await self.lk_trash_proxy('AbonentCurrentBalance')
         return -(response['data'][0]['sm_balance'])
 
-    async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
+    async def get_submission_availability(self) -> Optional[Tuple[bool, int]]:
         # @TODO: approximate using bill data
         return None
 
@@ -1005,7 +1031,7 @@ class MOEAccount(MESAccount):
                 )
 
             else:
-                meter = self._meter_objects[meter_code]
+                meter = self._meter_objects[meter_index]
                 meter.data = meter_data
 
             keep_meter_objects.append(meter)
@@ -1018,7 +1044,9 @@ class MOEAccount(MESAccount):
         return await self._common_proxy_charge_details(start, end, 'smorodinaTransProxy')
 
     async def _get_payments(self, start: datetime, end: datetime) -> PaymentsList:
-        return await self._common_proxy_payments(start, end, 'smorodinaTransProxy', key_status='nm_pay_state')
+        return await self._common_proxy_payments(start, end, 'smorodinaTransProxy',
+                                                 proxy_query='AbonentPays',
+                                                 key_status='nm_pay_state')
 
     update_info = BaseAccount.update_info
 
@@ -1042,7 +1070,8 @@ class KSGAccount(BaseAccount):
         keep_meter_objects = []
 
         if self._meter_objects:
-            meter_code = self._account_info['nm_meter'].strip()
+            from pprint import pprint
+            meter_code = self._account_info['nn_meter'].strip()
             keep_meter_objects = []
             for meter_object in self._meter_objects:
                 if meter_object.meter_code == meter_code:
@@ -1072,7 +1101,7 @@ class KSGAccount(BaseAccount):
         response = await self.lk_ksg_proxy('CurrentBalance')
         return response['data'][0]['vl_balance']
 
-    async def get_remaining_days(self) -> Optional[Tuple[bool, int]]:
+    async def get_submission_availability(self) -> Optional[Tuple[bool, int]]:
         return await self._common_proxy_remaining_days('ksgProxy')
 
     async def _get_indications(self, start: datetime, end: datetime) -> IndicationsList:
@@ -1105,6 +1134,10 @@ class BaseMeter(ABC):
 
     def __repr__(self):
         return '<%s>' % self
+
+    @property
+    def account(self) -> BaseAccount:
+        return self._account
 
     @property
     def data(self) -> DataType:
@@ -1168,7 +1201,7 @@ class BaseMeter(ABC):
 
     @property
     def tariff_count(self) -> int:
-        return len(self.tariffs)
+        return len(self.tariff_ids)
 
     @property
     def today_indications(self) -> List[Optional[float]]:
@@ -1179,12 +1212,40 @@ class BaseMeter(ABC):
         raise NotImplementedError
 
     @property
+    def _empty_indications_list(self) -> List[type(None)]:
+        return [None] * self.tariff_count
+
+    @property
     def submitted_indications(self) -> List[Optional[float]]:
-        raise NotImplementedError
+        """
+        Submitted indications accessor.
+        Skims meter data for submitted indications in current period, and prepares data.
+        :return:
+        """
+        last_indications_date = self.last_indications_date
+        if last_indications_date is not None:
+            period_start_date = self.period_start_date
+            if period_start_date is not None:
+                period_end_date = self.period_end_date
+                if period_end_date is not None:
+                    if period_start_date <= last_indications_date <= period_end_date:
+                        return self.last_indications
+
+        # Out-of-period today submission
+        today_indications = self.today_indications
+
+        if any(today_indications):
+            return today_indications
+
+        return self._empty_indications_list
 
     @property
     def invoice_indications(self) -> List[Optional[float]]:
         return self.last_indications
+
+    @property
+    def last_indications_date(self) -> Optional[date]:
+        return None
 
     @property
     def period_start_date(self) -> Optional[date]:
@@ -1205,17 +1266,86 @@ class SubmittableMeter(BaseMeter, ABC):
         period_end_date = self.period_end_date
 
         if period_start_date is None or period_end_date is None:
-            remaining_days = await self._account.get_remaining_days()
-            if remaining_days is not None and not remaining_days[0]:
+            submission_availability = await self._account.get_submission_availability()
+            if submission_availability is None:
+                _LOGGER.warning('Could not determine period start/end date(s), assuming failed period check')
+                raise SubmissionPeriodException('Could not identify submission period')
+
+            active, remaining_days = submission_availability
+
+            if not active:
                 raise SubmissionPeriodException('Submission is not active')
 
-            _LOGGER.warning('Could not determine period start/end date(s), assuming failed period check')
-            raise SubmissionPeriodException('Could not identify submission period')
+        else:
+            period = DateUtil.moscow_today()
 
-        period = DateUtil.moscow_today()
+            if period < period_start_date or period > period_end_date:
+                raise SubmissionPeriodException('Submission period not within range')
 
-        if period < period_start_date or period > period_end_date:
-            raise SubmissionPeriodException('Submission period not within range')
+    async def _common_prepare_indications_request(self, indications: IndicationsType, check_if_float: bool = True):
+        if check_if_float:
+            _converter = float if await self._account.get_indications_is_float() else int
+        else:
+            def _converter(x: Any):
+                if isinstance(x, (int, float)):
+                    return x
+                return int(x)
+
+        request_dict = {
+            'vl_%s' % tariff_id: _converter(indication)
+            for tariff_id, indication in zip(self.tariff_ids, indications)
+            if indication is not None
+        }
+
+        request_dict['pr_flat_meter'] = self._data.get('pr_flat_meter', 0)
+
+        request_dict['nn_phone'] = await self._account.get_contact_phone()
+
+        return request_dict
+
+    async def _common_submit_indications(
+            self,
+            indications: IndicationsType,
+            plugin: str,
+            proxy_query: str = 'SaveIndications',
+            check_if_float: bool = True
+    ) -> str:
+        request_dict = await self._common_prepare_indications_request(indications, check_if_float=check_if_float)
+        result = await self._account.proxy_request(plugin, proxy_query, request_dict)
+
+        result_data = result.get('data')
+        if result_data:
+            data = result_data[0]
+            if data['kd_result'] == ResponseCodes.RESPONSE_RESULT:
+                return data['nm_result']
+
+            if data['kd_result'] == 2:
+                raise IndicationsCountException('Sent invalid indications count')
+
+        _LOGGER.debug('Indications saving response data: %s', result)
+        raise MosenergosbytException('Unknown error')
+
+    async def _common_calculate_indications(
+            self,
+            indications: IndicationsType,
+            plugin: str,
+            proxy_query: str = 'CalcCharge',
+            check_if_float: bool = True,
+    ) -> 'ChargeCalculation':
+        request_dict = await self._common_prepare_indications_request(indications, check_if_float=check_if_float)
+        result = await self._account.proxy_request(plugin, proxy_query, request_dict)
+
+        result_data = result.get('data')
+        if result_data:
+            data = result_data[0]
+            if data['kd_result'] == ResponseCodes.RESPONSE_RESULT:
+                return ChargeCalculation(self, indications, data['sm_charge'], data['nm_result'], data['pr_correct'])
+
+            if data['kd_result'] == 2:
+                raise IndicationsCountException('Sent invalid indications count')
+
+        _LOGGER.debug('Indications calculation response data: %s' % result)
+        raise MosenergosbytException('Unknown error')
 
     async def _check_submit_values(self, indications: IndicationsType) -> None:
         tariff_count = self.tariff_count
@@ -1234,15 +1364,18 @@ class SubmittableMeter(BaseMeter, ABC):
 
         else:
             for last_indication, new_indication, tariff_id in zip(last_indications, indications, self.tariff_ids):
+                if last_indication is None:
+                    continue
+
                 if last_indication > new_indication:
                     raise IndicationsThresholdException(
-                        'Indication "%s" (%d) is less than last indication value (%d)',
-                        tariff_id, new_indication, last_indication
+                        'Indication "%s" (%d) is less than last indication value (%d)' %
+                        (tariff_id, new_indication, last_indication)
                     )
                 elif int(last_indication) == int(new_indication):
                     raise IndicationsThresholdException(
-                        'Indication "%s" (%d) is equal to last indication value integer-wise (%d)',
-                        tariff_id, int(new_indication), int(last_indication)
+                        'Indication "%s" (%d) is equal to last indication value integer-wise (%d)' %
+                        (tariff_id, int(new_indication), int(last_indication))
                     )
 
     async def _submit_indications(self, indications: IndicationsType) -> str:
@@ -1316,23 +1449,6 @@ class MESElectricityMeter(SubmittableMeter):
         return self._data.get('nm_mrk')
 
     @property
-    def submitted_indications(self) -> List[Optional[float]]:
-        """
-        Submitted indications accessor.
-        Skims meter data for submitted indications in current period, and prepares data.
-        :return:
-        """
-        if self.period_end_date >= self.last_indications_date >= self.period_start_date:
-            return self.last_indications
-
-        today_indications = self.today_indications
-
-        if any(today_indications):
-            return today_indications
-
-        return [None] * self.tariff_count
-
-    @property
     def today_indications(self) -> List[Optional[float]]:
         """
         Today indications accessor.
@@ -1342,7 +1458,7 @@ class MESElectricityMeter(SubmittableMeter):
         return [self._data.get('vl_%s_today' % i) for i in self.tariff_ids]
 
     @property
-    def last_indications(self) -> List[float]:
+    def last_indications(self) -> List[Optional[float]]:
         """
         Last indications accessor.
         Returns data as list for indications submitted last.
@@ -1391,42 +1507,16 @@ class MESElectricityMeter(SubmittableMeter):
         return request_dict
 
     async def _submit_indications(self, indications: IndicationsType) -> str:
-        request_dict = await self._prepare_indications_request(indications)
-        result = await self._account.lk_byt_proxy('SaveIndications', request_dict)
-
-        result_data = result.get('data')
-        if result_data:
-            data = result_data[0]
-            if data['kd_result'] == ResponseCodes.RESPONSE_RESULT:
-                return data['nm_result']
-
-            if data['kd_result'] == 2:
-                raise IndicationsCountException('Sent invalid indications count')
-
-        _LOGGER.debug('Indications saving response data: %s', result)
-        raise MosenergosbytException('Unknown error')
+        return await self._common_submit_indications(indications, 'bytProxy')
 
     async def _calculate_indications(self, indications: IndicationsType) -> 'ChargeCalculation':
-        request_dict = await self._prepare_indications_request(indications)
-        result = await self._account.lk_byt_proxy('CalcCharge', request_dict)
-
-        result_data = result.get('data')
-        if result_data:
-            data = result_data[0]
-            if data['kd_result'] == ResponseCodes.RESPONSE_RESULT and data['pr_correct'] == 1:
-                return ChargeCalculation(self, indications, data['sm_charge'], data['nm_result'])
-
-            if data['kd_result'] == 2:
-                raise IndicationsCountException('Sent invalid indications count')
-
-        _LOGGER.debug('Indications calculation response data: %s' % result)
-        raise MosenergosbytException('Unknown error')
+        return await self._common_calculate_indications(indications, 'bytProxy')
 
 
 class TKOIndicationMeter(BaseMeter):
     @property
     def submitted_indications(self) -> List[Optional[float]]:
-        return [None] * len(self._data.values())
+        raise ActionNotSupportedException('Submitted indications not available')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1591,9 +1681,6 @@ class MOEGenericMeter(SubmittableMeter):
 
         _LOGGER.debug('Indications saving response data: %s' % result)
 
-        if not error_code and not error_text:
-            raise MosenergosbytException('Unknown error')
-
         raise MosenergosbytException(
             'API returned error (code: %s): %s' % error_code or 'unknown', error_text or 'no description'
         )
@@ -1603,14 +1690,6 @@ class MOEGenericMeter(SubmittableMeter):
 
 
 class KSGElectricityMeter(SubmittableMeter):
-    async def submit_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                                 ignore_indications_check: bool = False) -> str:
-        raise MosenergosbytException('not yet implemented')
-
-    async def calculate_indications(self, indications: IndicationsType, ignore_period_check: bool = False,
-                                    ignore_indications_check: bool = False) -> 'ChargeCalculation':
-        raise MosenergosbytException('not yet implemented')
-
     @property
     def meter_code(self) -> str:
         return self._account.info['nn_meter'].strip()
@@ -1626,54 +1705,46 @@ class KSGElectricityMeter(SubmittableMeter):
             return datetime.fromisoformat(install_date).date()
 
     @property
-    def indications_date(self) -> Optional[date]:
-        indications_date = self.data.get('dt_indication')
+    def last_indications_date(self) -> Optional[date]:
+        indications_date = self.data.get('date')
 
         if indications_date:
-            return date.fromisoformat(indications_date)
+            return indications_date.date()
 
     @property
     def today_indications(self) -> List[Optional[float]]:
-        indications_date = self.data.get('dt_indication')
-
-        if self.indications_date and indications_date == DateUtil.moscow_today():
+        if self.last_indications_date == DateUtil.moscow_today():
             return self.last_indications
 
-        return [None] * self.tariff_count
+        return self._empty_indications_list
 
     @property
     def last_indications(self) -> List[Optional[float]]:
         indications = []
+
         for tariff_id in self.tariff_ids:
-            value = self.data.get('vl_' + tariff_id)
-            indications.append(value if value is None else float(value))
+            value = self.data.get('meters', {}).get(tariff_id)
+            indications.append(None if value is None else float(value))
+
         return indications
 
-    @property
-    def submitted_indications(self) -> List[Optional[float]]:
-        indications_date = self.indications_date
-
-        if indications_date and self.period_start_date <= indications_date <= self.period_end_date:
-            return self.last_indications
-
-        return [None] * self.tariff_count
-
     async def _submit_indications(self, indications: IndicationsType) -> str:
-        pass
+        return await self._common_submit_indications(indications, 'ksgProxy')
 
     async def _calculate_indications(self, indications: IndicationsType) -> 'ChargeCalculation':
-        pass
+        return await self._common_calculate_indications(indications, 'ksgProxy')
 
 
 class ChargeCalculation:
     def __init__(self, meter: 'BaseMeter', indications: IndicationsType, charged: float, comment: str,
-                 period: Optional[date] = None):
+                 period: Optional[date] = None, correct: Any = None):
         self._period: date = DateUtil.month_start() if period is None else period
         self._meter = meter
         self._indications = dict(zip(meter.tariff_ids, indications))
 
         self.charged = float(charged)
         self.comment = comment
+        self.correct: Optional[bool] = None if correct is None else bool(correct)
 
     def __str__(self):
         return self.comment

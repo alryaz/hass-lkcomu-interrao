@@ -141,8 +141,7 @@ ENTITY_CONF_VALIDATORS[CONF_ENTITIES] = _validator_sub_keys(
     }
 )
 
-# Inner configuration schema (per-entry)
-CONFIG_ENTRY_SCHEMA = vol.Schema(
+BASE_CONFIG_ENTRY_SCHEMA = vol.Schema(
     {
         # Primary API configuration
         vol.Required(CONF_USERNAME): cv.string,
@@ -150,11 +149,18 @@ CONFIG_ENTRY_SCHEMA = vol.Schema(
 
         # Additional API configuration
         vol.Optional(CONF_USER_AGENT): vol.All(cv.string, lambda x: ' '.join(map(str.strip, x.split('\n')))),
+    },
+    extra=vol.PREVENT_EXTRA
+)
 
+# Inner configuration schema (per-entry)
+CONFIG_ENTRY_SCHEMA = BASE_CONFIG_ENTRY_SCHEMA.extend(
+    {
         # Account-related filtering
         vol.Optional(CONF_FILTER): _validator_sub_values(cv.boolean, True, ENTITY_CODES_VALIDATORS[CONF_ACCOUNTS]),
     },
     extra=vol.PREVENT_EXTRA
+
 ).extend(
     {
         # Entity-related configuration
@@ -164,10 +170,110 @@ CONFIG_ENTRY_SCHEMA = vol.Schema(
     extra=vol.PREVENT_EXTRA
 )
 
+
+# Previous versions compatibility layer
+def _adapt_old_config_entry_schema(options: Mapping[str, Any]):
+    _LOGGER.warning('You are using a deprecated configuration format for username "%s"! Configuration '
+                    'format used in 0.2.* is deprecated in 0.3.*, and will be removed in 0.3.5!',
+                    options[CONF_USERNAME])
+
+    new_options = {CONF_USERNAME: options[CONF_USERNAME],
+                   CONF_PASSWORD: options[CONF_PASSWORD]}
+
+    if CONF_USER_AGENT in options:
+        new_options[CONF_USER_AGENT] = options[CONF_USER_AGENT]
+
+    name_format = {}
+    for new_key, old_key in {
+        CONF_ACCOUNTS: 'account_name',
+        CONF_METERS: 'meter_name',
+        CONF_INVOICES: 'invoice_name',
+    }.items():
+        if old_key in options:
+            name_format[new_key] = options[old_key]
+
+    if name_format:
+        new_options[CONF_NAME_FORMAT] = name_format
+
+    if CONF_SCAN_INTERVAL in options:
+        new_options[CONF_SCAN_INTERVAL] = options[CONF_SCAN_INTERVAL]
+
+    entities = {}
+
+    if CONF_INVOICES in options:
+        if isinstance(options[CONF_INVOICES], list):
+            entities[CONF_INVOICES] = {CONF_DEFAULT: False}
+            entities[CONF_INVOICES].update({
+                code: True
+                for code in options[CONF_INVOICES]
+            })
+
+        else:
+            entities[CONF_INVOICES] = {CONF_DEFAULT: options[CONF_INVOICES]}
+
+    if CONF_ACCOUNTS in options:
+        if isinstance(options[CONF_ACCOUNTS], list):
+            entities[CONF_ACCOUNTS] = {CONF_DEFAULT: False}
+            entities[CONF_ACCOUNTS].update({
+                code: True
+                for code in options[CONF_ACCOUNTS]
+            })
+
+        elif isinstance(options[CONF_ACCOUNTS], bool):
+            entities[CONF_ACCOUNTS] = {CONF_DEFAULT: options[CONF_ACCOUNTS]}
+
+        elif isinstance(options[CONF_ACCOUNTS], Mapping):
+            entities[CONF_ACCOUNTS] = {CONF_DEFAULT: False}
+            for code, value in options[CONF_ACCOUNTS].items():
+                if value is False:
+                    entities[CONF_ACCOUNTS][code] = False
+                else:
+                    entities[CONF_ACCOUNTS][code] = True
+
+                    if isinstance(value, list):
+                        if CONF_METERS not in entities:
+                            entities[CONF_METERS] = {CONF_DEFAULT: False}
+
+                        for meter_code in value:
+                            entities[CONF_METERS][meter_code] = True
+
+    return CONFIG_ENTRY_SCHEMA(new_options)
+
+
+OLD_CONFIG_ENTRY_SCHEMA = vol.All(
+    BASE_CONFIG_ENTRY_SCHEMA.extend(
+        {
+            # Old name formatting validation
+            vol.Optional('account_name', default=DEFAULT_NAME_FORMAT_ACCOUNTS): cv.string,
+            vol.Optional('meter_name', default=DEFAULT_NAME_FORMAT_METERS): cv.string,
+            vol.Optional('invoice_name', default=DEFAULT_NAME_FORMAT_INVOICES): cv.string,
+
+            # Old scan interval validation
+            vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
+
+            # Old invoices schema
+            vol.Optional(CONF_INVOICES): vol.Any(
+                cv.boolean,
+                vol.All(cv.ensure_list, [cv.string])
+            ),
+
+            # Old accounts schema
+            vol.Optional(CONF_ACCOUNTS): vol.Any(
+                vol.All(cv.ensure_list, [cv.string]),
+                {cv.string: vol.Any(
+                    vol.All(cv.ensure_list, [cv.string]),
+                    vol.All(cv.boolean, True)
+                )}
+            ),
+        }
+    ),
+    _adapt_old_config_entry_schema,
+)
+
 # Outer configuration schema (per-domain)
 CONFIG_SCHEMA = vol.Schema(
     {
-        DOMAIN: vol.All(cv.ensure_list, [CONFIG_ENTRY_SCHEMA], vol.Length(min=1))
+        DOMAIN: vol.All(cv.ensure_list, [vol.Any(CONFIG_ENTRY_SCHEMA, OLD_CONFIG_ENTRY_SCHEMA)], vol.Length(min=1))
     },
     extra=vol.ALLOW_EXTRA,
 )

@@ -235,6 +235,10 @@ async def _common_discover_entities(
 
     for iter_object in source_objects:
         identifier = object_code_getter(iter_object)
+        
+        if not identifier:
+            continue
+            
         granular_log_prefix = _make_log_prefix(
             config_entry,
             current_entity_platform,

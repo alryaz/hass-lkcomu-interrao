@@ -1,5 +1,15 @@
 _ЕЛК ЖКХ &#xab;Интер РАО&#xbb; для Home Assistant_
-=======
+==================================================
+<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/master/images/header.png" height="100">
+
+> Предоставление информации о текущем состоянии ваших аккаунтов в ЕЛК ЖКХ.
+>
+>[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+>[![Лицензия](https://img.shields.io/badge/%D0%9B%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+>[![Поддержка](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D1%82%D1%81%D1%8F%3F-%D0%B4%D0%B0-green.svg)](https://github.com/alryaz/hass-lkcomu-interrao/graphs/commit-activity)
+>
+>[![Пожертвование Yandex](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
+>[![Пожертвование PayPal](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 
 ## Введение
 > @ TODO @
@@ -50,6 +60,19 @@ lkcomu_interrao:
     password: password2
 ```
 
+## Службы
+### `lkcomu_interrao.submit_indications` &mdash; Передача показаний
+> @ TODO @
+
+### `lkcomu_interrao.calculate_indications` &mdash; Подсчёт начислений
+> @ TODO @
+
+### `lkcomu_interrao.api_refresh` &mdash; Обновление данных API
+> @ TODO @
+
+### `lkcomu_interrao.set_description` &mdash; Установить описание лицевого счёта
+> @ TODO @
+
 ## Поддерживаемые ЛК
 
 Ниже предъявлен перечень поддерживаемых ЛК с их внутренними идентификаторами.
@@ -67,6 +90,15 @@ lkcomu_interrao:
 - Отображение последних платежей
 - Передача показаний по счётчикам
 
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: altai
+  username: username1
+  password: password1
+```
+
 ### Башэлектросбыт &mdash; `bashkortostan`
 [<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/bashkortostan.png" height="50" alt="ЕЛК ЖКХ ССК">](https://lkk.bashesk.ru/)
 
@@ -76,6 +108,15 @@ lkcomu_interrao:
 - Отображение последних квитанций
 - Отображение последних платежей
 - Передача показаний по счётчикам
+
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: bashkortostan
+  username: username1
+  password: password1
+```
 
 ### Мосэнергосбыт &mdash; `moscow`
 [<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/moscow.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.mosenergosbyt.ru/)
@@ -88,7 +129,16 @@ lkcomu_interrao:
 - Передача показаний по счётчикам<sup>2</sup>
 
 _<sup>1</sup> Для поставщика ТКО может применяться виртуализация счётчика_<br>
-_<sup>2</sup> На данный момент только для Мосэнергосбыт и МосОблЕИРЦ_  
+_<sup>2</sup> На данный момент только для Мосэнергосбыт и МосОблЕИРЦ_
+
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: moscow
+  username: username1
+  password: password1
+```
 
 ### Орловский Энергосбыт &mdash; `oryol`
 [<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/oryol.png" height="50" alt="ЕЛК ЖКХ ССК" >](https://my.interrao-orel.ru/)
@@ -100,6 +150,15 @@ _<sup>2</sup> На данный момент только для Мосэнер�
 - Отображение последних платежей
 - Передача показаний по счётчикам
 
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: oryol
+  username: username1
+  password: password1
+```
+
 ### Саратовэнерго &mdash; `saratov`
 [<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/saratov.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.saratovenergo.ru/)
 
@@ -109,6 +168,15 @@ _<sup>2</sup> На данный момент только для Мосэнер�
 - Отображение последних квитанций
 - Отображение последних платежей
 - Передача показаний по счётчикам
+
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: saratov
+  username: username1
+  password: password1
+```
 
 
 ### Северная Сбытовая Компания (ССК) &mdash; `sevesk`
@@ -121,6 +189,14 @@ _<sup>2</sup> На данный момент только для Мосэнер�
 - Отображение последних платежей
 - Передача показаний по счётчикам
 
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: sevesk
+  username: username1
+  password: password1
+```
 
 ### Тамбовская Энергосбытовая Компания (ТЭСК) &mdash; `tambov`
 [<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/tambov.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.tesk.su/)
@@ -131,6 +207,15 @@ _<sup>2</sup> На данный момент только для Мосэнер�
 - Отображение последних квитанций
 - Отображение последних платежей
 - Передача показаний по счётчикам
+
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: tambov
+  username: username1
+  password: password1
+```
 
 ### Томскэнергосбыт &mdash; `tomsk`
 [<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/tomsk.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.tomskenergosbyt.ru/)
@@ -144,6 +229,21 @@ _<sup>2</sup> На данный момент только для Мосэнер�
 
 _<sup>1</sup> На данный момент только АО "Томскэнергосбыт"_
 
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: tomsk
+  username: username1
+  password: password1
+
+  # Дополнительные параметры (необязательно):
+  # Данные параметры влияют на все учётные записи под профилем.
+  
+  # Отображние только данных от АО "Томскэнергосбыт" (не влияет на квитанции)
+  byt_only: false
+```
+
 ### Энергосбыт Волга - `volga`
 [<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/volga.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.esbvolga.ru/)
 
@@ -153,6 +253,15 @@ _<sup>1</sup> На данный момент только АО "Томскэне
 - Отображение последних квитанций
 - Отображение последних платежей
 - Передача показаний по счётчикам
+
+#### Пример конфигурации:
+```yaml
+...
+lkcomu_interrao:
+  type: volga
+  username: username1
+  password: password1
+```
 
 ## Дополнительная информация
 > @ TODO @

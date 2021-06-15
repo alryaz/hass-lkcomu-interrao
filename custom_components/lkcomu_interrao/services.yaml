@@ -96,7 +96,7 @@ update:
   description: "Служба полного обновления объекта (аналогично `homeassistant.update`)"
   target:
     entity:
-      integration: mosenergosbyt
+      integration: lkcomu_interrao
 
 update_account:
   description: "Служба обновления сведений об аккаунте"

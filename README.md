@@ -14,6 +14,11 @@ _ЕЛК ЖКХ &#xab;Интер РАО&#xbb; для Home Assistant_
 ## Введение
 > @ TODO @
 
+## Скриншоты
+![Сенсоры, часть 1](https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/sensors_1.png)
+![Сенсоры, часть 2](https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/sensors_2.png)
+![Сенсоры, часть 3](https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/sensors_3.png)
+
 ## Установка
 ### Посредством HACS
 > **✔️️ Рекомендуемый метод**

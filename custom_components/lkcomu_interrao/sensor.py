@@ -2,21 +2,17 @@
 Sensor for Mosenergosbyt cabinet.
 Retrieves indications regarding current state of accounts.
 """
-import asyncio
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date
 from enum import IntEnum
 from typing import (
     Any,
+    ClassVar,
     Dict,
     Hashable,
-    Iterable,
-    List,
     Mapping,
     Optional,
-    Tuple,
-    Type,
     TypeVar,
     Union,
 )
@@ -31,12 +27,13 @@ from homeassistant.const import (
     ATTR_SERVICE,
     STATE_LOCKED,
     STATE_OK,
-    STATE_UNAVAILABLE,
+    STATE_PROBLEM,
     STATE_UNKNOWN,
 )
 from homeassistant.helpers.typing import ConfigType
 
-from custom_components.lkcomu_interrao._base import MESEntity, make_common_async_setup_entry
+from custom_components.lkcomu_interrao._base import LkcomuEntity, make_common_async_setup_entry
+from custom_components.lkcomu_interrao._util import ICONS_FOR_PROVIDERS
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
     ATTR_ADDRESS,
@@ -45,16 +42,17 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_CHARGED,
     ATTR_COMMENT,
     ATTR_DESCRIPTION,
+    ATTR_FULL_NAME,
     ATTR_IGNORE_INDICATIONS,
     ATTR_IGNORE_PERIOD,
     ATTR_INCREMENTAL,
     ATTR_INDICATIONS,
-    ATTR_INDICATIONS_DICT,
     ATTR_INITIAL,
     ATTR_INSTALL_DATE,
     ATTR_INSURANCE,
     ATTR_INVOICE_ID,
     ATTR_LAST_SUBMIT_DATE,
+    ATTR_LIVING_AREA,
     ATTR_METER_CODE,
     ATTR_MODEL,
     ATTR_NOTIFICATION,
@@ -72,11 +70,14 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_SUBMIT_PERIOD_START,
     ATTR_SUCCESS,
     ATTR_TOTAL,
+    ATTR_TOTAL_AREA,
     CONF_ACCOUNTS,
     CONF_INVOICES,
     CONF_METERS,
-    CONF_NAME_FORMAT,
     DOMAIN,
+    FORMAT_VAR_ID,
+    FORMAT_VAR_TYPE_EN,
+    FORMAT_VAR_TYPE_RU,
 )
 from inter_rao_energosbyt.exceptions import EnergosbytException
 from inter_rao_energosbyt.interfaces import (
@@ -94,63 +95,30 @@ from inter_rao_energosbyt.presets.byt import _AccountWithBytInfo
 
 _LOGGER = logging.getLogger(__name__)
 
-RE_INDICATIONS_KEY = re.compile(r"^((t|vl)_?)?(\d+)$")
 RE_HTML_TAGS = re.compile(r"<[^<]+?>")
 RE_MULTI_SPACES = re.compile(r"\s{2,}")
 
 
-def indications_validator(indications: Any):
-    if isinstance(indications, Mapping):
-        temp_indications = {**indications}
+INDICATIONS_MAPPING_SCHEMA = vol.Schema(
+    {
+        vol.Required(vol.Match(r"t\d+")): cv.positive_float,
+    }
+)
 
-        dict_indications = {}
-
-        for key in indications.keys():
-            key_str = str(key)
-            match = RE_INDICATIONS_KEY.search(key_str)
-            if match:
-                value = cv.positive_float(indications[key])
-
-                idx = cv.positive_int(match.group(3))
-                if idx in dict_indications and dict_indications[idx] != value:
-                    raise vol.Invalid(
-                        "altering indication value for same index: %s" % (idx,), path=[key_str]
-                    )
-
-                dict_indications[idx] = value
-                del temp_indications[key]
-
-        if temp_indications:
-            errors = [
-                vol.Invalid("extra keys not allowed", path=[key]) for key in temp_indications.keys()
-            ]
-            if len(errors) == 1:
-                raise errors[0]
-            raise vol.MultipleInvalid(errors)
-
-        list_indications = []
-
-        for key in sorted(dict_indications.keys()):
-            if len(list_indications) < key - 1:
-                raise vol.Invalid("missing indication index: %d" % (key - 1,))
-            list_indications.append(dict_indications[key])
-
-    else:
-        try:
-            indications = map(str.strip, cv.string(indications).split(","))
-        except (vol.Invalid, vol.MultipleInvalid):
-            indications = cv.ensure_list(indications)
-
-        list_indications = list(map(cv.positive_float, indications))
-
-    if len(list_indications) < 1:
-        raise vol.Invalid("empty set of indications provided")
-
-    return list_indications
+INDICATIONS_SEQUENCE_SCHEMA = vol.All(
+    vol.Any(vol.All(cv.positive_float, cv.ensure_list), [cv.positive_float]),
+    lambda x: dict(map(lambda y: ("t" + str(y[0]), y[1]), enumerate(x, start=1))),
+)
 
 
 CALCULATE_PUSH_INDICATIONS_SCHEMA = {
-    vol.Required(ATTR_INDICATIONS): indications_validator,
+    vol.Required(ATTR_INDICATIONS): vol.Any(
+        vol.All(
+            cv.string, lambda x: list(map(str.strip, x.split(","))), INDICATIONS_SEQUENCE_SCHEMA
+        ),
+        INDICATIONS_MAPPING_SCHEMA,
+        INDICATIONS_SEQUENCE_SCHEMA,
+    ),
     vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
     vol.Optional(ATTR_IGNORE_INDICATIONS, default=False): cv.boolean,
     vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
@@ -161,7 +129,7 @@ CALCULATE_PUSH_INDICATIONS_SCHEMA = {
 }
 
 SERVICE_PUSH_INDICATIONS = "push_indications"
-SERVICE_PUSH_INDICATIONS_PAYLOAD_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
+SERVICE_PUSH_INDICATIONS_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
 
 SERVICE_CALCULATE_INDICATIONS = "calculate_indications"
 SERVICE_CALCULATE_INDICATIONS_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
@@ -169,18 +137,35 @@ SERVICE_CALCULATE_INDICATIONS_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
 EVENT_CALCULATION_RESULT = DOMAIN + "_calculation_result"
 EVENT_PUSH_RESULT = DOMAIN + "_push_result"
 
+FEATURE_PUSH_INDICATIONS = 1
+FEATURE_CALCULATE_INDICATIONS = 2
 
-TSensor = TypeVar("TSensor", bound="MESEntity")
-DiscoveryReturnType = Tuple[List["MoscowPGUSensor"], List[asyncio.Task]]
-
-
-_TMESEntity = TypeVar("_TMESEntity", bound="MESEntity")
+_TLkcomuEntity = TypeVar("_TLkcomuEntity", bound=LkcomuEntity)
 
 
-class MESAccountSensor(MESEntity[AbstractAccountWithBalance, AbstractBalance]):
+class LkcomuAccountSensor(LkcomuEntity[Account]):
     """The class for this sensor"""
 
     config_key = CONF_ACCOUNTS
+
+    def __init__(self, *args, balance: Optional[AbstractBalance] = None, **kwargs) -> None:
+        super().__init__(*args, *kwargs)
+        self._balance = balance
+
+        self.entity_id: Optional[
+            str
+        ] = f"sensor.{self.account_provider_code or 'unknown'}_account_{self.code}"
+
+    @property
+    def entity_picture(self) -> Optional[str]:
+        account_provider_code = self.account_provider_code
+        if account_provider_code is None:
+            return None
+
+        provider_icon = ICONS_FOR_PROVIDERS.get(account_provider_code)
+        if isinstance(provider_icon, str):
+            return provider_icon
+        return None
 
     @property
     def code(self) -> str:
@@ -199,9 +184,9 @@ class MESAccountSensor(MESEntity[AbstractAccountWithBalance, AbstractBalance]):
     @property
     def state(self) -> Union[str, float]:
         if self._account.is_locked:
-            return STATE_LOCKED
-        if self._entity_data is not None:
-            return float(self._entity_data) or 0.0
+            return STATE_PROBLEM
+        if self._balance is not None:
+            return self._balance.balance or 0.0  # fixes -0.0 issues
         return STATE_UNKNOWN
 
     @property
@@ -210,8 +195,7 @@ class MESAccountSensor(MESEntity[AbstractAccountWithBalance, AbstractBalance]):
 
     @property
     def unit_of_measurement(self) -> Optional[str]:
-        if self._entity_data is not None:
-            return "руб."
+        return "руб."
 
     @property
     def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
@@ -252,9 +236,9 @@ class MESAccountSensor(MESEntity[AbstractAccountWithBalance, AbstractBalance]):
             if info:
                 attributes.update(
                     {
-                        "full_name": info.full_name,
-                        "living_area": info.living_area,
-                        "total_area": info.total_area,
+                        ATTR_FULL_NAME: info.full_name,
+                        ATTR_LIVING_AREA: info.living_area,
+                        ATTR_TOTAL_AREA: info.total_area,
                     }
                 )
 
@@ -265,32 +249,26 @@ class MESAccountSensor(MESEntity[AbstractAccountWithBalance, AbstractBalance]):
         """Return the name of the sensor"""
         account = self._account
         return {
-            "code": account.code,
-            "id": account.id,
-            "provider_name": account.provider_name,
-            "service_name": account.service_name,
-            "service_type_value": int(account.service_type),
-            "type": "account",
+            FORMAT_VAR_ID: str(account.id),
+            FORMAT_VAR_TYPE_EN: "account",
+            FORMAT_VAR_TYPE_RU: "лицевой счёт",
         }
 
     @classmethod
     async def async_refresh_accounts(
-        cls: Type[_TMESEntity],
-        entities: Dict[Hashable, Optional[_TMESEntity]],
+        cls,
+        entities: Dict[Hashable, _TLkcomuEntity],
         account: "Account",
         config_entry: ConfigEntry,
-        final_config: ConfigType,
-    ) -> Optional[Iterable[_TMESEntity]]:
+        account_config: ConfigType,
+    ):
         entity_key = account.id
         try:
             entity = entities[entity_key]
         except KeyError:
-            entity = cls(
-                final_config[CONF_NAME_FORMAT][cls.config_key][account.code],
-                timedelta(hours=1),
-                account,
-            )
+            entity = cls(account, account_config)
             entities[entity_key] = entity
+
             return [entity]
         else:
             if entity.enabled:
@@ -298,28 +276,99 @@ class MESAccountSensor(MESEntity[AbstractAccountWithBalance, AbstractBalance]):
 
     async def async_update(self) -> None:
         await self._account.async_update_related()
-        self._entity_data = await self._account.async_get_balance()
+        if isinstance(self._account, AbstractAccountWithBalance):
+            self._balance = await self._account.async_get_balance()
 
 
-class MESMeterSensor(MESEntity[AbstractAccountWithMeters, AbstractMeter]):
+class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
     """The class for this sensor"""
 
-    config_key = CONF_METERS
+    config_key: ClassVar[str] = CONF_METERS
+
+    def __init__(self, *args, meter: AbstractMeter, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._meter = meter
+
+        self.entity_id: Optional[
+            str
+        ] = f"sensor.{self.account_provider_code or 'unknown'}_meter_{self.code}"
+
+    #################################################################################
+    # Implementation base of inherent class
+    #################################################################################
+
+    @classmethod
+    async def async_refresh_accounts(
+        cls,
+        entities: Dict[Hashable, Optional[_TLkcomuEntity]],
+        account: "Account",
+        config_entry: ConfigEntry,
+        account_config: ConfigType,
+    ):
+        new_meter_entities = []
+        if isinstance(account, AbstractAccountWithMeters):
+            meters = await account.async_get_meters()
+
+            for meter_id, meter in meters.items():
+                entity_key = (account.id, meter_id)
+                try:
+                    entity = entities[entity_key]
+                except KeyError:
+                    entity = cls(
+                        account,
+                        account_config,
+                        meter=meter,
+                    )
+                    entities[entity_key] = entity
+                    new_meter_entities.append(entity)
+                else:
+                    if entity.enabled:
+                        entity.async_schedule_update_ha_state(force_refresh=True)
+
+        return new_meter_entities if new_meter_entities else None
+
+    async def async_update(self) -> None:
+        meters = await self._account.async_get_meters()
+        meter_data = meters.get(self._meter.id)
+        if meter_data is None:
+            self.hass.async_create_task(self.async_remove())
+        else:
+            if isinstance(meter_data, AbstractSubmittableMeter):
+                self.platform.async_register_entity_service(
+                    SERVICE_PUSH_INDICATIONS,
+                    SERVICE_PUSH_INDICATIONS_SCHEMA,
+                    "async_push_indications",
+                    FEATURE_PUSH_INDICATIONS,
+                )
+
+            if isinstance(meter_data, AbstractCalculatableMeter):
+                self.platform.async_register_entity_service(
+                    SERVICE_CALCULATE_INDICATIONS,
+                    SERVICE_CALCULATE_INDICATIONS_SCHEMA,
+                    "async_calculate_indications",
+                    FEATURE_CALCULATE_INDICATIONS,
+                )
+
+            self._meter = meter_data
+
+    #################################################################################
+    # Data-oriented implementation of inherent class
+    #################################################################################
 
     @property
     def code(self) -> str:
-        return self._entity_updater.code
+        return self._meter.code
 
     @property
     def unique_id(self) -> str:
         """Return the unique ID of the sensor"""
-        met = self._entity_data
+        met = self._meter
         acc = met.account
         return f"{acc.api.__class__.__name__}_meter_{acc.id}_{met.id}"
 
     @property
     def state(self) -> str:
-        return self._entity_data.status or STATE_OK
+        return self._meter.status or STATE_OK
 
     @property
     def icon(self):
@@ -330,8 +379,15 @@ class MESMeterSensor(MESEntity[AbstractAccountWithMeters, AbstractMeter]):
         return DOMAIN + "_meter"
 
     @property
+    def supported_features(self) -> int:
+        return (
+            isinstance(self._meter, AbstractSubmittableMeter) * FEATURE_PUSH_INDICATIONS
+            | isinstance(self._meter, AbstractCalculatableMeter) * FEATURE_CALCULATE_INDICATIONS
+        )
+
+    @property
     def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
-        met = self._entity_data
+        met = self._meter
         attributes = {
             ATTR_METER_CODE: met.code,
             ATTR_ACCOUNT_CODE: met.account.code,
@@ -379,18 +435,21 @@ class MESMeterSensor(MESEntity[AbstractAccountWithMeters, AbstractMeter]):
 
     @property
     def name_format_values(self) -> Mapping[str, Any]:
-        meter = self._entity_data
+        meter = self._meter
         return {
-            "type": "calculated_for",
-            "code": meter.code,
-            "account_code": meter.code,
-            "model": meter.model or "unknown",
+            FORMAT_VAR_ID: meter.id or "<unknown>",
+            FORMAT_VAR_TYPE_EN: "meter",
+            FORMAT_VAR_TYPE_RU: "счётчик",
         }
+
+    #################################################################################
+    # Additional functionality
+    #################################################################################
 
     def _fire_callback_event(
         self, call_data: Mapping[str, Any], event_data: Mapping[str, Any], event_id: str, title: str
     ):
-        meter = self._entity_data
+        meter = self._meter
         hass = self.hass
         comment = event_data.get(ATTR_COMMENT)
 
@@ -417,11 +476,6 @@ class MESMeterSensor(MESEntity[AbstractAccountWithMeters, AbstractMeter]):
             ATTR_COMMENT: None,
             **event_data,
         }
-
-        if event_data.get(ATTR_INDICATIONS_DICT) is None and event_data[ATTR_INDICATIONS]:
-            event_data[ATTR_INDICATIONS_DICT] = {
-                "t%d" % i: v for i, v in enumerate(event_data[ATTR_INDICATIONS], start=1)
-            }
 
         _LOGGER.debug("Firing event '%s' with post_fields: %s" % (event_id, event_data))
 
@@ -450,7 +504,7 @@ class MESMeterSensor(MESEntity[AbstractAccountWithMeters, AbstractMeter]):
 
     def _get_real_indications(self, call_data: Mapping) -> Mapping[str, Union[int, float]]:
         indications: Mapping[str, Union[int, float]] = call_data[ATTR_INDICATIONS]
-        meter_zones = self._entity_data.zones
+        meter_zones = self._meter.zones
 
         for zone_id, new_value in indications.items():
             if zone_id not in meter_zones:
@@ -479,7 +533,7 @@ class MESMeterSensor(MESEntity[AbstractAccountWithMeters, AbstractMeter]):
         """
         _LOGGER.info(self.log_prefix + "Begin handling indications submission")
 
-        meter = self._entity_data
+        meter = self._meter
 
         if meter is None:
             raise Exception("Meter is unavailable")
@@ -520,11 +574,13 @@ class MESMeterSensor(MESEntity[AbstractAccountWithMeters, AbstractMeter]):
 
             _LOGGER.info(self.log_prefix + "End handling indications submission")
 
-            if not event_data.get(ATTR_SUCCESS):
+            if event_data.get(ATTR_SUCCESS):
+                self.async_schedule_update_ha_state(force_refresh=True)
+            else:
                 raise Exception(event_data[ATTR_COMMENT] or "comment not provided")
 
     async def async_calculate_indications(self, **call_data):
-        meter = self._entity_data
+        meter = self._meter
 
         if meter is None:
             raise Exception("Meter is unavailable")
@@ -571,61 +627,41 @@ class MESMeterSensor(MESEntity[AbstractAccountWithMeters, AbstractMeter]):
 
         _LOGGER.info(self.log_prefix + "End handling indications calculation")
 
-        if not event_data.get(ATTR_SUCCESS):
+        if event_data.get(ATTR_SUCCESS):
+            self.async_schedule_update_ha_state(force_refresh=True)
+        else:
             raise Exception(event_data[ATTR_COMMENT] or "comment not provided")
 
-    @classmethod
-    async def async_refresh_accounts(
-        cls: Type[_TMESEntity],
-        entities: Dict[Hashable, Optional[_TMESEntity]],
-        account: "Account",
-        config_entry: ConfigEntry,
-        final_config: ConfigType,
-    ) -> Optional[Iterable[_TMESEntity]]:
-        if isinstance(account, AbstractAccountWithMeters):
-            meters = await account.async_get_meters()
 
-            for meter_id, meter in meters.items():
-                entity_key = (account.id, meter_id)
-                try:
-                    entity = entities[entity_key]
-                except KeyError:
-                    entity = cls(
-                        final_config[CONF_NAME_FORMAT][cls.config_key][meter.code],
-                        timedelta(hours=1),
-                        account,
-                        meter,
-                    )
-                    entities[entity_key] = entity
-                    return [entity]
-                else:
-                    if entity.enabled:
-                        entity.async_schedule_update_ha_state(force_refresh=True)
-
-    async def async_update(self) -> None:
-        meters = await self._account.async_get_meters()
-        meter_data = meters.get(self._entity_data.id)
-        if meter_data is not None:
-            self._entity_data = meter_data
-
-
-class MESInvoiceSensor(MESEntity[AbstractAccountWithInvoices, AbstractInvoice]):
+class LkcomuLastInvoiceSensor(LkcomuEntity[AbstractAccountWithInvoices]):
     config_key = CONF_INVOICES
+
+    def __init__(self, *args, last_invoice: Optional["AbstractInvoice"] = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._last_invoice = last_invoice
+
+        self.entity_id: Optional[
+            str
+        ] = f"sensor.{self.account_provider_code or 'unknown'}_last_invoice_{self.code}"
+
+    @property
+    def code(self) -> str:
+        return self._account.code
 
     @property
     def device_class(self) -> Optional[str]:
-        return DOMAIN + "_invoices"
+        return DOMAIN + "_invoice"
 
     @property
     def unique_id(self) -> str:
         """Return the unique ID of the sensor"""
         acc = self._account
-        return f"{acc.api.__class__.__name__}_invoice_{acc.id}"
+        return f"{acc.api.__class__.__name__}_lastinvoice_{acc.id}"
 
     @property
     def state(self) -> Union[float, str]:
-        invoice = self._entity_data
-        return round(invoice.total or 0.0, 2) if invoice else STATE_UNAVAILABLE
+        invoice = self._last_invoice
+        return round(invoice.total or 0.0, 2) if invoice else STATE_UNKNOWN
 
     @property
     def icon(self) -> str:
@@ -633,11 +669,11 @@ class MESInvoiceSensor(MESEntity[AbstractAccountWithInvoices, AbstractInvoice]):
 
     @property
     def unit_of_measurement(self) -> str:
-        return "руб." if self._entity_data else None
+        return "руб." if self._last_invoice else None
 
     @property
     def sensor_related_attributes(self):
-        invoice = self._entity_data
+        invoice = self._last_invoice
 
         if invoice:
             return {
@@ -657,33 +693,27 @@ class MESInvoiceSensor(MESEntity[AbstractAccountWithInvoices, AbstractInvoice]):
 
     @property
     def name_format_values(self) -> Mapping[str, Any]:
-        invoice = self._entity_data
+        invoice = self._last_invoice
         return {
-            "type": "invoice",
-            "period": invoice.period.isoformat(),
-            "id": invoice.id,
-            "account_code": self._account.code,
+            FORMAT_VAR_ID: invoice.id if invoice else "<?>",
+            FORMAT_VAR_TYPE_EN: "last invoice",
+            FORMAT_VAR_TYPE_RU: "последняя квитанция",
         }
 
     @classmethod
     async def async_refresh_accounts(
-        cls: Type[_TMESEntity],
-        entities: Dict[Hashable, _TMESEntity],
+        cls,
+        entities: Dict[Hashable, _TLkcomuEntity],
         account: "Account",
         config_entry: ConfigEntry,
-        final_config: ConfigType,
-    ) -> Optional[Iterable[_TMESEntity]]:
+        account_config: ConfigType,
+    ):
         entity_key = account.id
-
         if isinstance(account, AbstractAccountWithInvoices):
             try:
                 entity = entities[entity_key]
             except KeyError:
-                entity = cls(
-                    final_config[CONF_NAME_FORMAT][cls.config_key][account.code],
-                    timedelta(hours=1),
-                    account,
-                )
+                entity = cls(account, account_config)
                 entities[entity_key] = entity
                 return [entity]
             else:
@@ -693,9 +723,11 @@ class MESInvoiceSensor(MESEntity[AbstractAccountWithInvoices, AbstractInvoice]):
         return None
 
     async def async_update(self) -> None:
-        self._entity_data = await self._account.async_get_last_invoice()
+        self._last_invoice = await self._account.async_get_last_invoice()
 
 
 async_setup_entry = make_common_async_setup_entry(
-    MESAccountSensor, MESInvoiceSensor, MESMeterSensor
+    LkcomuAccountSensor,
+    LkcomuLastInvoiceSensor,
+    LkcomuMeterSensor,
 )

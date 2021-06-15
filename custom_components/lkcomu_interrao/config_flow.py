@@ -22,10 +22,6 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from custom_components.lkcomu_interrao._util import import_api_cls
-from custom_components.lkcomu_interrao._schema import (
-    ENTITY_CODES_VALIDATORS,
-    ENTITY_CONF_VALIDATORS,
-)
 from custom_components.lkcomu_interrao.const import (
     API_TYPE_NAMES,
     CONF_ACCOUNTS,
@@ -46,7 +42,7 @@ from inter_rao_energosbyt.interfaces import (
 )
 
 if TYPE_CHECKING:
-    from custom_components.lkcomu_interrao._base import MESEntity
+    from custom_components.lkcomu_interrao._base import LkcomuEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -216,7 +212,7 @@ class MosenergosbytOptionsFlow(OptionsFlow):
 
         options = OrderedDict()
 
-        entities: List["MESEntity"] = (
+        entities: List["LkcomuEntity"] = (
             self.hass.data.get(DATA_ENTITIES, {})
             .get(self.config_entry.entry_id, {})
             .get(config_key, [])

@@ -2,13 +2,13 @@ push_indications:
   description: 'Передать показания в личный кабинет'
   target:
     entity:
-      device_class: mosenergosbyt_meter
+      device_class: lkcomu_interrao_meter
   fields:
     indications:
-      description: 'Список показаний (от 1 до 3) для тарифов: [T1, T2, T3]'
+      description: 'Список показаний (от 1 до 3) для тарифов: T1, T2, T3'
       required: true
       advanced: false
-      example: '[123, 456, 789]'
+      example: '123, 456, 789'
       selector:
         text:
           multiline: false
@@ -49,13 +49,13 @@ calculate_indications:
   description: 'Подсчитать начисления по передаваемым показаниям'
   target:
     entity:
-      device_class: mosenergosbyt_meter
+      device_class: lkcomu_interrao_meter
   fields:
     indications:
-      description: 'Список показаний (от 1 до 3) для тарифов: [T1, T2, T3]'
+      description: 'Список показаний (от 1 до 3) для тарифов: T1, T2, T3'
       required: true
       advanced: false
-      example: '[123, 456, 789]'
+      example: '123, 456, 789'
       selector:
         text:
           multiline: false
@@ -91,45 +91,3 @@ calculate_indications:
       example: 'false'
       selector:
         boolean:
-
-update:
-  description: "Служба полного обновления объекта (аналогично `homeassistant.update`)"
-  target:
-    entity:
-      integration: lkcomu_interrao
-
-update_account:
-  description: "Служба обновления сведений об аккаунте"
-  target:
-    entity:
-      device_class: mosenergosbyt_account
-
-update_current_balance:
-  description: "Служба обновления текущего состояния баланса"
-  target:
-    entity:
-      device_class: mosenergosbyt_account
-
-update_submission_availability:
-  description: "Служба обновления доступности передачи показаний"
-  target:
-    entity:
-      device_class: mosenergosbyt_account
-
-update_last_payment:
-  description: "Служба обновления состояния последнего платежа"
-  target:
-    entity:
-      device_class: mosenergosbyt_account
-
-update_meter:
-  description: "Служба обновления данных о счётчике"
-  target:
-    entity:
-      device_class: mosenergosbyt_meter
-
-update_invoice:
-  description: "Служба обновления данных о последнем выставленном счёте"
-  target:
-    entity:
-      device_class: mosenergosbyt_invoice

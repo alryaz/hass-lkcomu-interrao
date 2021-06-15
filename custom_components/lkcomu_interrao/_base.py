@@ -1,8 +1,10 @@
 __all__ = (
     "make_common_async_setup_entry",
-    "MESEntity",
+    "LkcomuEntity",
     "async_refresh_api_data",
     "async_register_update_delegator",
+    "UpdateDelegatorsDataType",
+    "EntitiesDataType",
 )
 
 import asyncio
@@ -29,41 +31,47 @@ from typing import (
 from urllib.parse import urlparse
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ATTRIBUTION, CONF_TYPE, CONF_USERNAME
+from homeassistant.const import ATTR_ATTRIBUTION, CONF_DEFAULT, CONF_SCAN_INTERVAL
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType, StateType
 from homeassistant.util import as_local, utcnow
 
-from custom_components.lkcomu_interrao._util import _make_log_prefix
+from custom_components.lkcomu_interrao._util import _make_log_prefix, IS_IN_RUSSIA
 from custom_components.lkcomu_interrao.const import (
-    ATTRIBUTION,
+    ATTRIBUTION_EN,
+    ATTRIBUTION_RU,
+    CONF_DEV_PRESENTATION,
+    CONF_NAME_FORMAT,
     DATA_API_OBJECTS,
     DATA_ENTITIES,
     DATA_FINAL_CONFIG,
     DATA_UPDATE_DELEGATORS,
+    FORMAT_VAR_ACCOUNT_CODE,
+    FORMAT_VAR_ACCOUNT_ID,
+    FORMAT_VAR_CODE,
+    FORMAT_VAR_PROVIDER_CODE,
+    FORMAT_VAR_PROVIDER_NAME,
     SUPPORTED_PLATFORMS,
 )
+from inter_rao_energosbyt.enums import ProviderType
 from inter_rao_energosbyt.exceptions import EnergosbytException
 
 if TYPE_CHECKING:
+    from homeassistant.helpers.entity_registry import RegistryEntry
     from inter_rao_energosbyt.interfaces import Account, BaseEnergosbytAPI
 
 _LOGGER = logging.getLogger(__name__)
 
-_TMESEntity = TypeVar("_TMESEntity", bound="MESEntity")
-
-
-def _get_key(config_entry: ConfigEntry) -> Tuple[str, str]:
-    return config_entry.data[CONF_TYPE], config_entry.data[CONF_USERNAME]
-
+_TLkcomuEntity = TypeVar("_TLkcomuEntity", bound="LkcomuEntity")
 
 AddEntitiesCallType = Callable[[List["MESEntity"], bool], Any]
 UpdateDelegatorsDataType = Dict[str, Tuple[AddEntitiesCallType, Set[Type["MESEntity"]]]]
+EntitiesDataType = Dict[Type["LkcomuEntity"], Dict[Hashable, "LkcomuEntity"]]
 
 
-def make_common_async_setup_entry(entity_cls: Type["MESEntity"], *args: Type["MESEntity"]):
+def make_common_async_setup_entry(entity_cls: Type["LkcomuEntity"], *args: Type["LkcomuEntity"]):
     async def _async_setup_entry(
         hass: HomeAssistantType,
         config_entry: ConfigEntry,
@@ -94,14 +102,13 @@ async def async_register_update_delegator(
     config_entry: ConfigEntry,
     platform: str,
     async_add_entities: AddEntitiesCallType,
-    entity_cls: Type["MESEntity"],
-    *args: Type["MESEntity"],
+    entity_cls: Type["LkcomuEntity"],
+    *args: Type["LkcomuEntity"],
     update_after_complete: bool = True,
 ):
-    key = _get_key(config_entry)
-    update_delegators: UpdateDelegatorsDataType = hass.data.setdefault(
-        DATA_UPDATE_DELEGATORS, {}
-    ).setdefault(key, {})
+    entry_id = config_entry.entry_id
+
+    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS][entry_id]
     update_delegators[platform] = (async_add_entities, {entity_cls, *args})
 
     if update_after_complete:
@@ -112,8 +119,8 @@ async def async_register_update_delegator(
 
 
 async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEntry):
-    key = _get_key(config_entry)
-    api: "BaseEnergosbytAPI" = hass.data[DATA_API_OBJECTS][key]
+    entry_id = config_entry.entry_id
+    api: "BaseEnergosbytAPI" = hass.data[DATA_API_OBJECTS][entry_id]
 
     try:
         accounts = await api.async_update_accounts(with_related=False)
@@ -121,58 +128,78 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
         await api.async_authenticate()
         accounts = await api.async_update_accounts(with_related=False)
 
-    update_delegators: Optional[UpdateDelegatorsDataType] = hass.data.get(
-        DATA_UPDATE_DELEGATORS, {}
-    ).get(key)
+    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS][entry_id]
 
     if not update_delegators:
         return
 
-    entities: Dict[Type["MESEntity"], Dict[Hashable, "MESEntity"]] = hass.data[
-        DATA_ENTITIES
-    ].setdefault(key, {})
+    entities: EntitiesDataType = hass.data[DATA_ENTITIES][entry_id]
+    final_config: ConfigType = hass.data[DATA_FINAL_CONFIG][entry_id]
 
-    final_config = hass.data[DATA_FINAL_CONFIG][key]
+    dev_presentation = final_config.get(CONF_DEV_PRESENTATION)
+    dev_classes_processed = set()
 
-    tasks = []
+    platform_tasks = {}
 
-    async def _wrap_platform(async_add_entities_, platform_tasks_):
-        all_new_entities_ = []
-        for new_entities in await asyncio.gather(*platform_tasks_, return_exceptions=True):
-            if not new_entities:
-                continue
+    for account_id, account in accounts.items():
+        account_config = final_config.get(account.code)
 
-            if isinstance(new_entities, BaseException):
-                _LOGGER.debug("Error ocurred: %s", new_entities)
-                continue
+        if account_config is None:
+            account_config = final_config.get(CONF_DEFAULT)
 
-            all_new_entities_.extend(new_entities)
+        if account_config is False:
+            continue
 
-        async_add_entities_(all_new_entities_, True)
-
-    for platform, (async_add_entities, entity_classes) in update_delegators.items():
-        platform_tasks = []
-        for account_id, account in accounts.items():
+        for platform, (_, entity_classes) in update_delegators.items():
+            add_update_tasks = platform_tasks.setdefault(platform, [])
             for entity_cls in entity_classes:
+                if account_config[entity_cls.config_key] is False:
+                    continue
+
+                if dev_presentation:
+                    if (entity_cls, account.provider_type) in dev_classes_processed:
+                        continue
+                    dev_classes_processed.add((entity_cls, account.provider_type))
+
                 current_entities = entities.setdefault(entity_cls, {})
-                platform_tasks.append(
+
+                add_update_tasks.append(
                     entity_cls.async_refresh_accounts(
                         current_entities,
                         account,
                         config_entry,
-                        final_config,
+                        account_config,
                     )
                 )
 
-        if platform_tasks:
-            tasks.append(_wrap_platform(async_add_entities, platform_tasks))
+    if platform_tasks:
+        for platform, tasks in zip(
+            platform_tasks.keys(),
+            await asyncio.gather(
+                *map(lambda x: asyncio.gather(*x, return_exceptions=True), platform_tasks.values())
+            ),
+        ):
+            all_new_entities = []
+            for results in tasks:
+                if results is None:
+                    continue
+                if isinstance(results, BaseException):
+                    _LOGGER.error(f"Error occurred: {repr(results)}")
+                    continue
+                all_new_entities.extend(results)
 
-    if tasks:
-        await asyncio.wait(map(hass.async_create_task, tasks))
+            if all_new_entities:
+                update_delegators[platform][0](all_new_entities, True)
 
 
 class NameFormatDict(dict):
-    def __missing__(self, key):
+    def __missing__(self, key: str):
+        if key.endswith("_upper") and key[:-6] in self:
+            return str(self[key[:-6]]).upper()
+        if key.endswith("_cap") and key[:-4] in self:
+            return str(self[key[:-4]]).capitalize()
+        if key.endswith("_title") and key[:-6] in self:
+            return str(self[key[:-6]]).title()
         return "{{" + str(key) + "}}"
 
 
@@ -180,30 +207,40 @@ _TData = TypeVar("_TData")
 _TAccount = TypeVar("_TAccount", bound="Account")
 
 
-class MESEntity(Entity, Generic[_TAccount, _TData]):
+class LkcomuEntity(Entity, Generic[_TAccount]):
     config_key: ClassVar[str] = NotImplemented
 
     def __init__(
         self,
-        name_format: str,
-        scan_interval: timedelta,
         account: _TAccount,
-        entity_data: Optional[_TData] = None,
+        account_config: ConfigType,
     ) -> None:
-        self._name_format = name_format
-        self._scan_interval = scan_interval
         self._account: _TAccount = account
-
-        self._entity_data: Optional[_TData] = entity_data
+        self._account_config: ConfigType = account_config
         self._entity_updater = None
+
+    #################################################################################
+    # Config getter helpers
+    #################################################################################
+
+    @property
+    def account_provider_code(self) -> Optional[str]:
+        try:
+            return ProviderType(self._account.provider_type).name.lower()
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def scan_interval(self) -> timedelta:
+        return self._account_config[CONF_SCAN_INTERVAL][self.config_key]
+
+    @property
+    def name_format(self) -> str:
+        return self._account_config[CONF_NAME_FORMAT][self.config_key]
 
     #################################################################################
     # Base overrides
     #################################################################################
-
-    @property
-    def entity_picture(self) -> str:
-        return self._account.api.BASE_URL + "/favicon.ico"
 
     @property
     def should_poll(self) -> bool:
@@ -216,8 +253,12 @@ class MESEntity(Entity, Generic[_TAccount, _TData]):
     @property
     def device_state_attributes(self):
         """Return the attribute(s) of the sensor"""
+        attribution = (ATTRIBUTION_RU if IS_IN_RUSSIA else ATTRIBUTION_EN) % urlparse(
+            self._account.api.BASE_URL
+        ).netloc
+
         return {
-            ATTR_ATTRIBUTION: ATTRIBUTION % urlparse(self._account.api.BASE_URL).netloc,
+            ATTR_ATTRIBUTION: attribution,
             **(self.sensor_related_attributes or {}),
         }
 
@@ -229,7 +270,23 @@ class MESEntity(Entity, Generic[_TAccount, _TData]):
                 for key, value in self.name_format_values.items()
             }
         )
-        return self._name_format.format_map(name_format_values)
+
+        if FORMAT_VAR_CODE not in name_format_values:
+            name_format_values[FORMAT_VAR_CODE] = self.code
+
+        if FORMAT_VAR_ACCOUNT_CODE not in name_format_values:
+            name_format_values[FORMAT_VAR_ACCOUNT_CODE] = self._account.code
+
+        if FORMAT_VAR_ACCOUNT_ID not in name_format_values:
+            name_format_values[FORMAT_VAR_ACCOUNT_ID] = str(self._account.id)
+
+        if FORMAT_VAR_PROVIDER_CODE not in name_format_values:
+            name_format_values[FORMAT_VAR_PROVIDER_CODE] = self.account_provider_code or "unknown"
+
+        if FORMAT_VAR_PROVIDER_NAME not in name_format_values:
+            name_format_values[FORMAT_VAR_PROVIDER_NAME] = self._account.provider_name
+
+        return self.name_format.format_map(name_format_values)
 
     #################################################################################
     # Hooks for adding entity to internal registry
@@ -243,6 +300,30 @@ class MESEntity(Entity, Generic[_TAccount, _TData]):
     async def async_will_remove_from_hass(self) -> None:
         _LOGGER.info(self.log_prefix + "Removing from HomeAssistant")
         self.updater_stop()
+
+        registry_entry: Optional["RegistryEntry"] = self.registry_entry
+        if registry_entry:
+            entry_id: Optional[str] = registry_entry.config_entry_id
+            if entry_id:
+                data_entities: EntitiesDataType = self.hass.data[DATA_ENTITIES][entry_id]
+                cls_entities = data_entities.get(self.__class__)
+                if cls_entities:
+                    _LOGGER.debug(self.log_prefix + "FOUND ENTITIES TO REMOVE %s", cls_entities)
+                    remove_indices = []
+                    for idx, entity in enumerate(cls_entities):
+                        if self is entity:
+                            remove_indices.append(idx)
+                    for idx in remove_indices:
+                        _LOGGER.debug(self.log_prefix + "REMOVING INDEX %s", idx)
+                        cls_entities.pop(idx)
+                else:
+                    _LOGGER.debug(self.log_prefix + "NO ENTITIES TO REMOVE")
+
+            else:
+                _LOGGER.debug(self.log_prefix + "NO CONFIG ENTRY ID")
+
+        else:
+            _LOGGER.debug(self.log_prefix + "NO REGISTRY ENTRY")
 
     #################################################################################
     # Updater management API
@@ -259,22 +340,25 @@ class MESEntity(Entity, Generic[_TAccount, _TData]):
             self._entity_updater = None
 
     def updater_restart(self) -> None:
+        log_prefix = self.log_prefix
+        scan_interval = self.scan_interval
+
         self.updater_stop()
 
         async def _update_entity(*_):
             nonlocal self
-            _LOGGER.debug(self.log_prefix + f"Executing updater on interval")
+            _LOGGER.debug(log_prefix + f"Executing updater on interval")
             await self.async_update_ha_state(force_refresh=True)
 
         _LOGGER.debug(
-            self.log_prefix + f"Starting updater "
-            f"(interval: {self._scan_interval.total_seconds()} seconds, "
-            f"next call: {as_local(utcnow()) + self._scan_interval})"
+            log_prefix + f"Starting updater "
+            f"(interval: {scan_interval.total_seconds()} seconds, "
+            f"next call: {as_local(utcnow()) + scan_interval})"
         )
         self._entity_updater = async_track_time_interval(
             self.hass,
             _update_entity,
-            self._scan_interval,
+            scan_interval,
         )
 
     async def updater_execute(self) -> None:
@@ -291,12 +375,12 @@ class MESEntity(Entity, Generic[_TAccount, _TData]):
     @classmethod
     @abstractmethod
     async def async_refresh_accounts(
-        cls: Type[_TMESEntity],
-        entities: Dict[Hashable, Optional[_TMESEntity]],
+        cls: Type[_TLkcomuEntity],
+        entities: Dict[Hashable, _TLkcomuEntity],
         account: "Account",
         config_entry: ConfigEntry,
-        final_config: ConfigType,
-    ) -> Optional[Iterable[_TMESEntity]]:
+        account_config: ConfigType,
+    ) -> Optional[Iterable[_TLkcomuEntity]]:
         raise NotImplementedError
 
     @abstractmethod
@@ -306,6 +390,11 @@ class MESEntity(Entity, Generic[_TAccount, _TData]):
     #################################################################################
     # Data-oriented base for inherent classes
     #################################################################################
+
+    @property
+    @abstractmethod
+    def code(self) -> str:
+        raise NotImplementedError
 
     @property
     @abstractmethod

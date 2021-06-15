@@ -2,7 +2,8 @@
 
 DOMAIN = "lkcomu_interrao"
 
-ATTRIBUTION = "Данные с портала %s"
+ATTRIBUTION_RU = "Данные получены с %s"
+ATTRIBUTION_EN = "Data acquired from %s"
 
 ATTR_ACCOUNT_CODE = "account_code"
 ATTR_ADDRESS = "address"
@@ -20,7 +21,6 @@ ATTR_IGNORE_INDICATIONS = "ignore_indications"
 ATTR_IGNORE_PERIOD = "ignore_period"
 ATTR_INCREMENTAL = "incremental"
 ATTR_INDICATIONS = "indications"
-ATTR_INDICATIONS_DICT = "indications_dict"
 ATTR_INITIAL = "initial"
 ATTR_INSTALL_DATE = "install_date"
 ATTR_INSURANCE = "insurance"
@@ -50,25 +50,31 @@ ATTR_UNIT = "unit"
 ATTR_PROVIDER_TYPE = "provider_type"
 
 CONF_ACCOUNTS = "accounts"
-CONF_FILTER = "filter_empty"
 CONF_INVOICES = "invoices"
 CONF_METERS = "meters"
 CONF_NAME_FORMAT = "name_format"
 CONF_USER_AGENT = "user_agent"
 CONF_PAYMENTS = "payments"
+CONF_DEV_PRESENTATION = "dev_presentation"
 
 DATA_API_OBJECTS = DOMAIN + "_api_objects"
 DATA_ENTITIES = DOMAIN + "_entities"
 DATA_FINAL_CONFIG = DOMAIN + "_final_config"
-DATA_UPDATERS = DOMAIN + "_updaters"
 DATA_UPDATE_LISTENERS = DOMAIN + "_update_listeners"
 DATA_YAML_CONFIG = DOMAIN + "_yaml_config"
 DATA_UPDATE_DELEGATORS = DOMAIN + "_update_delegators"
 
-DEFAULT_NAME_FORMAT_ACCOUNTS = "MES Account {code}"
-DEFAULT_NAME_FORMAT_INVOICES = "MES Invoice {code}"
+DEFAULT_NAME_FORMAT_EN_ACCOUNTS = "{provider_code_upper} {account_code} {type_en_cap}"
+DEFAULT_NAME_FORMAT_EN_INVOICES = "{provider_code_upper} {account_code} {type_en_cap}"
+DEFAULT_NAME_FORMAT_EN_METERS = "{provider_code_upper} {account_code} {type_en_cap} {code}"
+DEFAULT_NAME_FORMAT_EN_PAYMENTS = "{provider_code_upper} {account_code} {type_en_cap}"
+
+DEFAULT_NAME_FORMAT_RU_ACCOUNTS = "{provider_code_upper} {account_code} {type_ru_cap}"
+DEFAULT_NAME_FORMAT_RU_INVOICES = "{provider_code_upper} {account_code} {type_ru_cap}"
+DEFAULT_NAME_FORMAT_RU_METERS = "{provider_code_upper} {account_code} {type_ru_cap} {code}"
+DEFAULT_NAME_FORMAT_RU_PAYMRUTS = "{provider_code_upper} {account_code} {type_ru_cap}"
+
 DEFAULT_MAX_INDICATIONS = 3
-DEFAULT_NAME_FORMAT_METERS = "MES Meter {code}"
 DEFAULT_SCAN_INTERVAL = 60 * 60  # 1 hour
 
 API_TYPE_DEFAULT = "moscow"
@@ -86,3 +92,18 @@ API_TYPE_NAMES = {
 
 
 SUPPORTED_PLATFORMS = ("sensor", "binary_sensor")
+ATTR_AMOUNT = "amount"
+ATTR_AGENT = "agent"
+ATTR_GROUP = "group"
+ATTR_PAID_AT = "paid_at"
+FORMAT_VAR_TYPE_RU = "type_ru"
+FORMAT_VAR_TYPE_EN = "type_en"
+FORMAT_VAR_CODE = "code"
+FORMAT_VAR_ID = "id"
+FORMAT_VAR_ACCOUNT_ID = "account_id"
+FORMAT_VAR_ACCOUNT_CODE = "account_code"
+FORMAT_VAR_PROVIDER_CODE = "provider_code"
+FORMAT_VAR_PROVIDER_NAME = "provider_name"
+ATTR_FULL_NAME = "full_name"
+ATTR_LIVING_AREA = "living_area"
+ATTR_TOTAL_AREA = "total_area"

@@ -1,4 +1,8 @@
-from typing import Any, Optional, Type, Union
+import asyncio
+import datetime
+import re
+from datetime import timedelta
+from typing import Any, Dict, Optional, TYPE_CHECKING, Type, Union
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
@@ -8,6 +12,9 @@ from homeassistant.helpers.entity_platform import EntityPlatform
 from homeassistant.helpers.typing import HomeAssistantType
 
 from custom_components.lkcomu_interrao.const import DOMAIN
+
+if TYPE_CHECKING:
+    from inter_rao_energosbyt.interfaces import BaseEnergosbytAPI
 
 
 def _make_log_prefix(
@@ -39,3 +46,67 @@ def _find_existing_entry(
 
 def import_api_cls(type_: str) -> Type["BaseEnergosbytAPI"]:
     return __import__("inter_rao_energosbyt.api." + type_, globals(), locals(), ("API",)).API
+
+
+RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w\.]+\.ico)"')
+
+
+def _code_search_index(code: str):
+    return list(map(str.lower, (code + "Logo", "defaultMarker" + code)))
+
+
+ICONS_FOR_PROVIDERS: Dict[str, Optional[Union[asyncio.Future, str]]] = {}
+
+
+async def _async_get_icon_for_provider(api: "BaseEnergosbytAPI", code: str) -> Optional[str]:
+    session = api._session
+    base_url = api.BASE_URL
+
+    async with session.get(base_url + "/asset-manifest.json") as response:
+        manifest = await response.json()
+
+    search_index = _code_search_index(code)
+    for key in manifest:
+        for index_key in search_index:
+            if index_key in key.lower():
+                return base_url + "/" + manifest[key]
+
+    if "main.js" in manifest:
+        async with session.get(base_url + "/" + manifest["main.js"]) as response:
+            js_code = await response.text()
+
+        m = RE_FAVICON.search(js_code)
+        if m:
+            return base_url + "/" + m.group(1)
+
+    return None
+
+
+async def async_get_icon_for_provider(api: "BaseEnergosbytAPI", code: str) -> Optional[str]:
+    code = code.lower()
+    if code in ICONS_FOR_PROVIDERS:
+        current_code = ICONS_FOR_PROVIDERS[code]
+        if isinstance(current_code, asyncio.Future):
+            return await current_code
+        return current_code
+
+    code_future = asyncio.get_event_loop().create_future()
+    ICONS_FOR_PROVIDERS[code] = code_future
+
+    try:
+        result = await _async_get_icon_for_provider(api, code)
+    except BaseException as e:
+        code_future.set_exception(e)
+        del ICONS_FOR_PROVIDERS[code]
+        raise
+    else:
+        code_future.set_result(result)
+        ICONS_FOR_PROVIDERS[code] = result
+
+    return result
+
+
+LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
+
+# Kaliningrad is excluded as it is not supported
+IS_IN_RUSSIA = timedelta(hours=3) <= LOCAL_TIMEZONE.utcoffset(None) <= timedelta(hours=12)

@@ -134,7 +134,10 @@ def _make_provider_schema(
         add_to_config[
             vol.Optional(CONF_DEFAULT, default=lambda: accounts_schema({}))
         ] = accounts_validator
-        add_to_config[vol.Optional(CONF_ACCOUNTS)] = vol.Schema({cv.string: accounts_validator})
+        add_to_config[vol.Optional(CONF_ACCOUNTS)] = vol.Any(
+            vol.All(cv.ensure_list, [cv.string], lambda x: {y: accounts_schema({}) for y in x}),
+            vol.Schema({cv.string: accounts_validator}),
+        )
 
     return GENERIC_CONFIG_ENTRY_SCHEMA.extend(add_to_config)
 
@@ -156,7 +159,12 @@ GENERIC_CONFIG_ENTRY_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_DEFAULT, default=lambda: GENERIC_ACCOUNT_SCHEMA({})
         ): GENERIC_ACCOUNT_VALIDATOR,
-        vol.Optional(CONF_ACCOUNTS): vol.Schema({cv.string: GENERIC_ACCOUNT_VALIDATOR}),
+        vol.Optional(CONF_ACCOUNTS): vol.Any(
+            vol.All(
+                cv.ensure_list, [cv.string], lambda x: {y: GENERIC_ACCOUNT_SCHEMA({}) for y in x}
+            ),
+            vol.Schema({cv.string: GENERIC_ACCOUNT_VALIDATOR}),
+        ),
     },
     extra=vol.PREVENT_EXTRA,
 )

@@ -44,6 +44,7 @@ from custom_components.lkcomu_interrao.const import (
     ATTRIBUTION_RU,
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
+    CONF_ACCOUNTS,
     CONF_DEV_PRESENTATION,
     CONF_NAME_FORMAT,
     DATA_API_OBJECTS,
@@ -143,11 +144,14 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
 
     platform_tasks = {}
 
+    accounts_config = final_config.get(CONF_ACCOUNTS) or {}
+    account_default_config = final_config[CONF_DEFAULT]
+
     for account_id, account in accounts.items():
-        account_config = final_config.get(account.code)
+        account_config = accounts_config.get(account.code)
 
         if account_config is None:
-            account_config = final_config.get(CONF_DEFAULT)
+            account_config = account_default_config
 
         if account_config is False:
             continue

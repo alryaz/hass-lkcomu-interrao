@@ -176,10 +176,10 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
             data={CONF_USERNAME: username, CONF_TYPE: type_},
         )
 
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        return MosenergosbytOptionsFlow(config_entry)
+    # @staticmethod
+    # @callback
+    # def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+    #     return MosenergosbytOptionsFlow(config_entry)
 
 
 CONF_DISABLE_ACCOUNTS = "disable_" + CONF_ACCOUNTS

@@ -1,9 +1,9 @@
 {
-  "name": "Mosenergosbyt (Мосэнергосбыт)",
+  "name": "Личный кабинет Интер РАО (Энергосбыт)",
   "content_in_root": false,
   "zip_release": false,
   "render_readme": true,
-  "domains": ["sensor"],
+  "domains": ["sensor", "binary_sensor"],
   "country": "ru",
   "homeassistant": "2021.2.0",
   "iot_class": "Cloud Polling"

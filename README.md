@@ -1,6 +1,6 @@
 _ЕЛК ЖКХ &#xab;Интер РАО&#xbb; для Home Assistant_
 ==================================================
-<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/master/images/header.png" height="100">
+<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/master/images/header.png">
 
 > Предоставление информации о текущем состоянии ваших аккаунтов в ЕЛК ЖКХ.
 >

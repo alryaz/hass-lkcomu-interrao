@@ -20,6 +20,7 @@ from custom_components.lkcomu_interrao.const import (
     CONF_ACCOUNTS,
     CONF_DEV_PRESENTATION,
     CONF_INVOICES,
+    CONF_LOGOS,
     CONF_METERS,
     CONF_NAME_FORMAT,
     CONF_PAYMENTS,
@@ -88,6 +89,7 @@ GENERIC_ACCOUNT_SCHEMA = vol.Schema(
         vol.Optional(CONF_INVOICES, default=True): cv.boolean,
         vol.Optional(CONF_METERS, default=True): cv.boolean,
         vol.Optional(CONF_PAYMENTS, default=True): cv.boolean,
+        vol.Optional(CONF_LOGOS, default=True): cv.boolean,
         vol.Optional(CONF_NAME_FORMAT, default=lambda: NAME_FORMAT_SCHEMA({})): vol.Any(
             vol.All(cv.string, lambda x: {CONF_ACCOUNTS: x}, NAME_FORMAT_SCHEMA),
             NAME_FORMAT_SCHEMA,

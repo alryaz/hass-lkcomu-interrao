@@ -31,14 +31,18 @@ from typing import (
 from urllib.parse import urlparse
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ATTRIBUTION, ATTR_CODE, CONF_DEFAULT, CONF_SCAN_INTERVAL
+from homeassistant.const import ATTR_ATTRIBUTION, CONF_DEFAULT, CONF_SCAN_INTERVAL
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType, StateType
 from homeassistant.util import as_local, utcnow
 
-from custom_components.lkcomu_interrao._util import _make_log_prefix, IS_IN_RUSSIA
+from custom_components.lkcomu_interrao._util import (
+    IS_IN_RUSSIA,
+    _make_log_prefix,
+    async_get_icons_for_providers,
+)
 from custom_components.lkcomu_interrao.const import (
     ATTRIBUTION_EN,
     ATTRIBUTION_RU,
@@ -50,6 +54,7 @@ from custom_components.lkcomu_interrao.const import (
     DATA_API_OBJECTS,
     DATA_ENTITIES,
     DATA_FINAL_CONFIG,
+    DATA_PROVIDER_LOGOS,
     DATA_UPDATE_DELEGATORS,
     FORMAT_VAR_ACCOUNT_CODE,
     FORMAT_VAR_ACCOUNT_ID,
@@ -135,6 +140,28 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
 
     if not update_delegators:
         return
+
+    try:
+        provider_icons = await async_get_icons_for_providers(
+            api, set(map(lambda x: x.provider_type, accounts.values()))
+        )
+    except BaseException as e:
+        _LOGGER.warning(
+            entry_id
+            + (
+                "Произошла ошибка при обновлении логотипов"
+                if IS_IN_RUSSIA
+                else "Error occurred while updating logos"
+            )
+            + ": "
+            + repr(e)
+        )
+    else:
+        if provider_icons:
+            if DATA_PROVIDER_LOGOS in hass.data:
+                hass.data[DATA_PROVIDER_LOGOS].update(provider_icons)
+            else:
+                hass.data[DATA_PROVIDER_LOGOS] = provider_icons
 
     entities: EntitiesDataType = hass.data[DATA_ENTITIES][entry_id]
     final_config: ConfigType = hass.data[DATA_FINAL_CONFIG][entry_id]

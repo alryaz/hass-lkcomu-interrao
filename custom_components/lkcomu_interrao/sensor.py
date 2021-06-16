@@ -17,7 +17,6 @@ from typing import (
     Union,
 )
 
-import attr as attr
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components import persistent_notification
@@ -34,7 +33,6 @@ from homeassistant.const import (
 from homeassistant.helpers.typing import ConfigType
 
 from custom_components.lkcomu_interrao._base import LkcomuEntity, make_common_async_setup_entry
-from custom_components.lkcomu_interrao._util import ICONS_FOR_PROVIDERS
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
@@ -76,7 +74,9 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_TOTAL_AREA,
     CONF_ACCOUNTS,
     CONF_INVOICES,
+    CONF_LOGOS,
     CONF_METERS,
+    DATA_PROVIDER_LOGOS,
     DOMAIN,
     FORMAT_VAR_ID,
     FORMAT_VAR_TYPE_EN,
@@ -167,13 +167,21 @@ class LkcomuAccountSensor(LkcomuEntity[Account]):
 
     @property
     def entity_picture(self) -> Optional[str]:
+        if not self._account_config[CONF_LOGOS]:
+            return None
+
+        logos = self.hass.data.get(DATA_PROVIDER_LOGOS)
+        if not logos:
+            return None
+
         account_provider_code = self.account_provider_code
         if account_provider_code is None:
             return None
 
-        provider_icon = ICONS_FOR_PROVIDERS.get(account_provider_code)
-        if isinstance(provider_icon, str):
-            return provider_icon
+        provider_logo = logos.get(account_provider_code)
+        if isinstance(provider_logo, str):
+            return provider_logo
+
         return None
 
     @property
@@ -460,7 +468,9 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
             attributes[ATTR_INSTALL_DATE] = met.installation_date.isoformat()
 
         # Submission periods attributes
-        if isinstance(met, AbstractSubmittableMeter):
+        is_submittable = isinstance(met, AbstractSubmittableMeter)
+        if is_submittable:
+            # noinspection PyUnresolvedReferences
             start_date, end_date = met.submission_period
             attributes[ATTR_SUBMIT_PERIOD_START] = start_date.isoformat()
             attributes[ATTR_SUBMIT_PERIOD_END] = end_date.isoformat()
@@ -473,16 +483,19 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
 
         # Add zone information
         for zone_id, zone_def in met.zones.items():
-            if attr.has(zone_def.__class__):
-                # noinspection PyDataclass
-                iterator = attr.asdict(zone_def).items()
+            iterator = [
+                ("name", zone_def.name),
+                ("last_indication", zone_def.last_indication or 0.0),
+                ("today_indication", zone_def.today_indication),
+            ]
 
-            else:
-                iterator = (
-                    ("name", zone_def.name),
-                    ("last_indication", zone_def.last_indication or 0.0),
-                    ("today_indication", zone_def.today_indication),
-                )
+            if is_submittable:
+                submitted_indication = zone_def.today_indication
+                if submitted_indication is None and last_indications_date is not None:
+                    # noinspection PyUnboundLocalVariable
+                    if start_date <= last_indications_date <= end_date:
+                        submitted_indication = zone_def.last_indication or 0.0
+                iterator.append(("period_indication", submitted_indication))
 
             for attribute, value in iterator:
                 attributes[f"zone_{zone_id}_{attribute}"] = value

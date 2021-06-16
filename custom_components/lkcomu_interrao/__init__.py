@@ -28,12 +28,14 @@ from custom_components.lkcomu_interrao._base import UpdateDelegatorsDataType
 from custom_components.lkcomu_interrao._schema import CONFIG_ENTRY_SCHEMA
 from custom_components.lkcomu_interrao._util import (
     IS_IN_RUSSIA,
+    async_get_icons_for_providers,
     _find_existing_entry,
     _make_log_prefix,
-    async_get_icon_for_provider,
+    async_update_provider_icons,
     import_api_cls,
 )
 from custom_components.lkcomu_interrao.const import (
+    DATA_PROVIDER_LOGOS,
     API_TYPE_DEFAULT,
     API_TYPE_NAMES,
     CONF_ACCOUNTS,
@@ -44,6 +46,7 @@ from custom_components.lkcomu_interrao.const import (
     DATA_API_OBJECTS,
     DATA_ENTITIES,
     DATA_FINAL_CONFIG,
+    DATA_PROVIDER_LOGOS,
     DATA_UPDATE_DELEGATORS,
     DATA_UPDATE_LISTENERS,
     DATA_YAML_CONFIG,
@@ -248,22 +251,6 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
         accounts: Mapping[AccountID, "Account"] = await api_object.async_update_accounts(
             with_related=True
         )
-
-        provider_types: Set[ProviderType] = set()
-
-        for account in accounts.values():
-            try:
-                provider_types.add(ProviderType(account.provider_type))
-            except (ValueError, TypeError):
-                continue
-
-        if provider_types:
-            await asyncio.gather(
-                *map(
-                    lambda x: async_get_icon_for_provider(api_object, x.name),
-                    provider_types,
-                )
-            )
 
     except EnergosbytException as e:
         _LOGGER.error(

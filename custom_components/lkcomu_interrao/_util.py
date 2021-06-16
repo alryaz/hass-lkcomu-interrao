@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import re
 from datetime import timedelta
-from typing import Any, Dict, Optional, TYPE_CHECKING, Type, Union
+from typing import Any, Dict, Optional, Set, TYPE_CHECKING, Type, Union
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
@@ -12,6 +12,7 @@ from homeassistant.helpers.entity_platform import EntityPlatform
 from homeassistant.helpers.typing import HomeAssistantType
 
 from custom_components.lkcomu_interrao.const import DOMAIN
+from inter_rao_energosbyt.enums import ProviderType
 
 if TYPE_CHECKING:
     from inter_rao_energosbyt.interfaces import BaseEnergosbytAPI
@@ -52,24 +53,51 @@ RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w\.]+\.ico)"')
 
 
 def _code_search_index(code: str):
-    return list(map(str.lower, (code + "Logo", "defaultMarker" + code)))
+    return
 
 
 ICONS_FOR_PROVIDERS: Dict[str, Optional[Union[asyncio.Future, str]]] = {}
 
 
-async def _async_get_icon_for_provider(api: "BaseEnergosbytAPI", code: str) -> Optional[str]:
+async def async_get_icons_for_providers(
+    api: "BaseEnergosbytAPI", provider_types: Set[int]
+) -> Dict[str, str]:
     session = api._session
     base_url = api.BASE_URL
+    icons = {}
 
     async with session.get(base_url + "/asset-manifest.json") as response:
         manifest = await response.json()
 
-    search_index = _code_search_index(code)
-    for key in manifest:
-        for index_key in search_index:
-            if index_key in key.lower():
-                return base_url + "/" + manifest[key]
+    iter_types = []
+
+    for provider_type in provider_types:
+        try:
+            code = ProviderType(provider_type).name.lower()
+        except (ValueError, TypeError):
+            continue
+        else:
+            iter_types.append(code)
+
+    for code in iter_types:
+        search_index = tuple(map(str.lower, (code + "Logo", "defaultMarker" + code)))
+        for key in manifest:
+            lower_key = key.lower()
+            for index_key in search_index:
+                if index_key in lower_key:
+                    icons[code] = base_url + "/" + manifest[key]
+                    break
+
+            if (
+                code not in icons
+                and code in key
+                and (
+                    lower_key.endswith(".png")
+                    or lower_key.endswith(".jpg")
+                    or lower_key.endswith(".svg")
+                )
+            ):
+                icons[code] = base_url + "/" + manifest[key]
 
     if "main.js" in manifest:
         async with session.get(base_url + "/" + manifest["main.js"]) as response:
@@ -77,13 +105,14 @@ async def _async_get_icon_for_provider(api: "BaseEnergosbytAPI", code: str) -> O
 
         m = RE_FAVICON.search(js_code)
         if m:
-            return base_url + "/" + m.group(1)
+            url = base_url + "/" + m.group(1)
+            for code in iter_types:
+                icons.setdefault(code, url)
 
-    return None
+    return icons
 
 
-async def async_get_icon_for_provider(api: "BaseEnergosbytAPI", code: str) -> Optional[str]:
-    code = code.lower()
+async def async_update_provider_icons(api: "BaseEnergosbytAPI") -> Optional[str]:
     if code in ICONS_FOR_PROVIDERS:
         current_code = ICONS_FOR_PROVIDERS[code]
         if isinstance(current_code, asyncio.Future):
@@ -94,7 +123,7 @@ async def async_get_icon_for_provider(api: "BaseEnergosbytAPI", code: str) -> Op
     ICONS_FOR_PROVIDERS[code] = code_future
 
     try:
-        result = await _async_get_icon_for_provider(api, code)
+        result = await async_get_icons_for_providers(api, code)
     except BaseException as e:
         code_future.set_exception(e)
         del ICONS_FOR_PROVIDERS[code]

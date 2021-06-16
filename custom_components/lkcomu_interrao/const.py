@@ -28,7 +28,7 @@ ATTR_INVOICE_ID = "invoice_id"
 ATTR_LAST_PAYMENT_AMOUNT = "last_payment_amount"
 ATTR_LAST_PAYMENT_DATE = "last_payment_date"
 ATTR_LAST_PAYMENT_STATUS = "last_payment_status"
-ATTR_LAST_SUBMIT_DATE = "last_submit_date"
+ATTR_LAST_INDICATIONS_DATE = "last_indications_date"
 ATTR_METER_CODE = "meter_code"
 ATTR_MODEL = "model"
 ATTR_NOTIFICATION = "notification"
@@ -79,15 +79,15 @@ DEFAULT_SCAN_INTERVAL = 60 * 60  # 1 hour
 
 API_TYPE_DEFAULT = "moscow"
 API_TYPE_NAMES = {
-    "altai": "Алтайэнергосбыт",
-    "bashkortostan": "Башэлектросбыт (ЭСКБ)",
-    "moscow": "Мосэнерго / МосОблЕИРЦ / ПАО ",
-    "oryol": "Орловский Энергосбыт / ЕПД",
-    "saratov": "Саратовский Энергосбыт",
-    "sevesk": "Северная Сбытовая Компания (ССК)",
-    "tambov": "Тамбовский Энергосбыт",
-    "tomsk": "Томский Энергосбыт / РТС",
-    "volga": "Энергосбыт «Волга»",
+    "altai": "ЛК Алтай (АО «АлтайЭнергосбыт»)",
+    "bashkortostan": "ЛКК ЭСКБ (Башэлектросбыт)",
+    "moscow": "ЕЛК ЖКХ (АО «Мосэнергосбыт», МосОблЕИРЦ, ПАО «Россети Московский регион»)",
+    "oryol": "ЛКК Орел (ООО «Орловский энергосбыт»)",
+    "saratov": "ЛК Саратов (ПАО «Саратовэнерго»)",
+    "sevesk": "ЕЛК Вологда (Северная сбытовая компания)",
+    "tambov": "ЛК ТЭСК (Тамбовская энергосбытовая компания)",
+    "tomsk": "ЕЛК Томск (Томскэнергосбыт / Томск РТС)",
+    "volga": "ЛКК ЭСВ (Энергосбыт Волга)",
 }
 
 
@@ -107,3 +107,6 @@ FORMAT_VAR_PROVIDER_NAME = "provider_name"
 ATTR_FULL_NAME = "full_name"
 ATTR_LIVING_AREA = "living_area"
 ATTR_TOTAL_AREA = "total_area"
+ATTR_ACCOUNT_ID = "account_id"
+ATTR_CLEAR = "clear"
+ATTR_PREVIOUS = "previous"

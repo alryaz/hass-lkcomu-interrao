@@ -91,3 +91,18 @@ calculate_indications:
       example: 'false'
       selector:
         boolean:
+
+
+set_description:
+  description: "Задать комментарий к лицевому счёту. Пустой параметр `description` (или его упущение) очистит описание к лицевому счёту."
+  target:
+    entity:
+      device_class: lkcomu_interrao_account
+  fields:
+    description:
+      description: 'Описание'
+      required: false
+      advanced: false
+      selector:
+        text:
+          multiline: false

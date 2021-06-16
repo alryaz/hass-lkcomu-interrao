@@ -4,7 +4,18 @@ import logging
 from collections import OrderedDict
 from datetime import timedelta
 from functools import partial
-from typing import Any, Dict, Iterable, List, Mapping, Optional, TYPE_CHECKING
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    TYPE_CHECKING,
+    Type,
+    Union,
+)
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -55,6 +66,8 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
+    CACHED_API_TYPE_NAMES: ClassVar[Optional[Dict[str, Any]]] = {}
+
     def __init__(self):
         """Instantiate config flow."""
         self._current_type = None
@@ -75,29 +88,41 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return False
 
+    @staticmethod
+    def make_entry_title(
+        api_cls: Union[Type["BaseEnergosbytAPI"], "BaseEnergosbytAPI"], username: str
+    ) -> str:
+        from urllib.parse import urlparse
+
+        return urlparse(api_cls.BASE_URL).netloc + " (" + username + ")"
+
     # Initial step for user interaction
     async def async_step_user(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
         """Handle a flow start."""
         if self.schema_user is None:
             try:
                 # noinspection PyUnresolvedReferences
-                from fake_useragent import UserAgent
-
-                loop = asyncio.get_event_loop()
-                ua = await loop.run_in_executor(
-                    None, partial(UserAgent, fallback=DEFAULT_USER_AGENT)
-                )
-                default_user_agent = ua["google chrome"]
+                from fake_useragent import UserAgent, FakeUserAgentError
 
             except ImportError:
+                print("COULD NOT IMPORT")
                 default_user_agent = DEFAULT_USER_AGENT
 
+            else:
+                try:
+                    loop = asyncio.get_event_loop()
+                    ua = await loop.run_in_executor(
+                        None, partial(UserAgent, fallback=DEFAULT_USER_AGENT)
+                    )
+                    default_user_agent = ua["google chrome"]
+                except FakeUserAgentError:
+                    default_user_agent = DEFAULT_USER_AGENT
+
             schema_user = OrderedDict()
-            schema_user[vol.Required(CONF_TYPE)] = vol.In(API_TYPE_NAMES)
+            schema_user[vol.Required(CONF_TYPE, default="moscow")] = vol.In(API_TYPE_NAMES)
             schema_user[vol.Required(CONF_USERNAME)] = str
             schema_user[vol.Required(CONF_PASSWORD)] = str
             schema_user[vol.Optional(CONF_USER_AGENT, default=default_user_agent)] = str
-            schema_user[vol.Optional(CONF_DISABLE_ENTITIES, default=False)] = bool
             self.schema_user = vol.Schema(schema_user)
 
         if user_input is None:
@@ -107,13 +132,13 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
         type_ = user_input[CONF_TYPE]
 
         if await self._check_entry_exists(type_, username):
-            return self.async_abort(reason="already_exists")
+            return self.async_abort(reason="already_configured_service")
 
         try:
             api_cls = import_api_cls(type_)
         except (ImportError, AttributeError):
             _LOGGER.error("Could not find API type: %s", type_)
-            return self.async_abort(reason="api_import_error")
+            return self.async_abort(reason="api_load_error")
 
         try:
             await api_cls(
@@ -129,11 +154,10 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors={"base": "authentication_error"},
             )
 
-        if CONF_DISABLE_ENTITIES in user_input:
-            entities_default = not user_input.pop(CONF_DISABLE_ENTITIES)
-            user_input[CONF_ENTITIES] = entities_default
-
-        return self.async_create_entry(title=username, data=user_input)
+        return self.async_create_entry(
+            title=self.make_entry_title(api_cls, username),
+            data=user_input,
+        )
 
     async def async_step_import(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
         if user_input is None:
@@ -145,12 +169,11 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
         if await self._check_entry_exists(type_, username):
             return self.async_abort(reason="already_exists")
 
+        api_cls = import_api_cls(type_)
+
         return self.async_create_entry(
-            title=username,
-            data={
-                CONF_USERNAME: username,
-                CONF_TYPE: type_,
-            },
+            title=self.make_entry_title(api_cls, username),
+            data={CONF_USERNAME: username, CONF_TYPE: type_},
         )
 
     @staticmethod

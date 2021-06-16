@@ -25,6 +25,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_SERVICE,
+    CONF_DESCRIPTION,
     STATE_LOCKED,
     STATE_OK,
     STATE_PROBLEM,
@@ -36,6 +37,7 @@ from custom_components.lkcomu_interrao._base import LkcomuEntity, make_common_as
 from custom_components.lkcomu_interrao._util import ICONS_FOR_PROVIDERS
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
+    ATTR_ACCOUNT_ID,
     ATTR_ADDRESS,
     ATTR_BENEFITS,
     ATTR_CALL_PARAMS,
@@ -51,7 +53,7 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_INSTALL_DATE,
     ATTR_INSURANCE,
     ATTR_INVOICE_ID,
-    ATTR_LAST_SUBMIT_DATE,
+    ATTR_LAST_INDICATIONS_DATE,
     ATTR_LIVING_AREA,
     ATTR_METER_CODE,
     ATTR_MODEL,
@@ -59,6 +61,7 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_PAID,
     ATTR_PENALTY,
     ATTR_PERIOD,
+    ATTR_PREVIOUS,
     ATTR_PROVIDER_NAME,
     ATTR_PROVIDER_TYPE,
     ATTR_REASON,
@@ -136,6 +139,12 @@ SERVICE_CALCULATE_INDICATIONS_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
 
 EVENT_CALCULATION_RESULT = DOMAIN + "_calculation_result"
 EVENT_PUSH_RESULT = DOMAIN + "_push_result"
+
+SERVICE_SET_DESCRIPTION = "set_description"
+SERVICE_SET_DESCRIPTION_SCHEMA = {
+    vol.Optional(CONF_DESCRIPTION): vol.Any(vol.Equal(None), cv.string),
+}
+EVENT_SET_DESCRIPTION = DOMAIN + "_set_description"
 
 FEATURE_PUSH_INDICATIONS = 1
 FEATURE_CALCULATE_INDICATIONS = 2
@@ -274,10 +283,57 @@ class LkcomuAccountSensor(LkcomuEntity[Account]):
             if entity.enabled:
                 entity.async_schedule_update_ha_state(force_refresh=True)
 
-    async def async_update(self) -> None:
+    async def async_update_internal(self) -> None:
         await self._account.async_update_related()
         if isinstance(self._account, AbstractAccountWithBalance):
             self._balance = await self._account.async_get_balance()
+
+        self.platform.async_register_entity_service(
+            SERVICE_SET_DESCRIPTION,
+            SERVICE_SET_DESCRIPTION_SCHEMA,
+            "async_set_description",
+        )
+
+    async def async_set_description(self, **call_data):
+        account = self._account
+
+        _LOGGER.info(self.log_prefix + "Begin handling description setting")
+
+        event_data = {
+            ATTR_ACCOUNT_CODE: account.code,
+            ATTR_ACCOUNT_ID: account.id,
+            ATTR_SUCCESS: False,
+            ATTR_DESCRIPTION: call_data.get(CONF_DESCRIPTION),
+            ATTR_PREVIOUS: account.description,
+        }
+
+        try:
+            await account.async_set_description(
+                description=event_data[ATTR_DESCRIPTION],
+                update=False,
+            )
+
+        except EnergosbytException as e:
+            event_data[ATTR_COMMENT] = "Error: %s" % e
+            raise
+
+        except Exception as e:
+            event_data[ATTR_COMMENT] = "Unknown error: %s" % e
+            _LOGGER.exception("Unknown error: %s", e)
+            raise
+
+        else:
+            event_data[ATTR_COMMENT] = "Successful calculation"
+            event_data[ATTR_SUCCESS] = True
+            self.async_schedule_update_ha_state(force_refresh=True)
+
+        finally:
+            self.hass.bus.async_fire(
+                event_type=EVENT_SET_DESCRIPTION,
+                event_data=event_data,
+            )
+
+            _LOGGER.info(self.log_prefix + "End handling indications calculation")
 
 
 class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
@@ -327,7 +383,7 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
 
         return new_meter_entities if new_meter_entities else None
 
-    async def async_update(self) -> None:
+    async def async_update_internal(self) -> None:
         meters = await self._account.async_get_meters()
         meter_data = meters.get(self._meter.id)
         if meter_data is None:
@@ -338,7 +394,7 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
                     SERVICE_PUSH_INDICATIONS,
                     SERVICE_PUSH_INDICATIONS_SCHEMA,
                     "async_push_indications",
-                    FEATURE_PUSH_INDICATIONS,
+                    (FEATURE_PUSH_INDICATIONS,),
                 )
 
             if isinstance(meter_data, AbstractCalculatableMeter):
@@ -346,7 +402,7 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
                     SERVICE_CALCULATE_INDICATIONS,
                     SERVICE_CALCULATE_INDICATIONS_SCHEMA,
                     "async_calculate_indications",
-                    FEATURE_CALCULATE_INDICATIONS,
+                    (FEATURE_CALCULATE_INDICATIONS,),
                 )
 
             self._meter = meter_data
@@ -411,7 +467,7 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
             attributes[ATTR_SUBMIT_PERIOD_ACTIVE] = start_date <= date.today() <= end_date
 
         last_indications_date = met.last_indications_date
-        attributes[ATTR_LAST_SUBMIT_DATE] = (
+        attributes[ATTR_LAST_INDICATIONS_DATE] = (
             None if last_indications_date is None else last_indications_date.isoformat()
         )
 
@@ -424,7 +480,7 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
             else:
                 iterator = (
                     ("name", zone_def.name),
-                    ("last_indication", zone_def.last_indication),
+                    ("last_indication", zone_def.last_indication or 0.0),
                     ("today_indication", zone_def.today_indication),
                 )
 
@@ -559,10 +615,17 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
 
             except EnergosbytException as e:
                 event_data[ATTR_COMMENT] = "API error: %s" % e
+                raise
+
+            except BaseException as e:
+                event_data[ATTR_COMMENT] = "Unknown error: %r" % e
+                _LOGGER.error(event_data[ATTR_COMMENT])
+                raise
 
             else:
                 event_data[ATTR_COMMENT] = "Indications submitted successfully"
                 event_data[ATTR_SUCCESS] = True
+                self.async_schedule_update_ha_state(force_refresh=True)
 
             finally:
                 self._fire_callback_event(
@@ -572,12 +635,7 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
                     "Передача показаний",
                 )
 
-            _LOGGER.info(self.log_prefix + "End handling indications submission")
-
-            if event_data.get(ATTR_SUCCESS):
-                self.async_schedule_update_ha_state(force_refresh=True)
-            else:
-                raise Exception(event_data[ATTR_COMMENT] or "comment not provided")
+                _LOGGER.info(self.log_prefix + "End handling indications submission")
 
     async def async_calculate_indications(self, **call_data):
         meter = self._meter
@@ -607,15 +665,19 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
 
         except EnergosbytException as e:
             event_data[ATTR_COMMENT] = "Error: %s" % e
+            raise
 
-        except Exception as e:
-            event_data[ATTR_COMMENT] = "Unknown error: %s" % e
-            _LOGGER.exception("Unknown error: %s", e)
+        except BaseException as e:
+            event_data[ATTR_COMMENT] = "Unknown error: %r" % e
+            _LOGGER.exception(event_data[ATTR_COMMENT])
+            raise
 
         else:
             event_data[ATTR_CHARGED] = float(calculation)
             event_data[ATTR_COMMENT] = "Successful calculation"
             event_data[ATTR_SUCCESS] = True
+
+            self.async_schedule_update_ha_state(force_refresh=True)
 
         finally:
             self._fire_callback_event(
@@ -625,12 +687,7 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
                 "Подсчёт показаний",
             )
 
-        _LOGGER.info(self.log_prefix + "End handling indications calculation")
-
-        if event_data.get(ATTR_SUCCESS):
-            self.async_schedule_update_ha_state(force_refresh=True)
-        else:
-            raise Exception(event_data[ATTR_COMMENT] or "comment not provided")
+            _LOGGER.info(self.log_prefix + "End handling indications calculation")
 
 
 class LkcomuLastInvoiceSensor(LkcomuEntity[AbstractAccountWithInvoices]):
@@ -722,7 +779,7 @@ class LkcomuLastInvoiceSensor(LkcomuEntity[AbstractAccountWithInvoices]):
 
         return None
 
-    async def async_update(self) -> None:
+    async def async_update_internal(self) -> None:
         self._last_invoice = await self._account.async_get_last_invoice()
 
 

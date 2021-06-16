@@ -31,7 +31,7 @@ from typing import (
 from urllib.parse import urlparse
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ATTRIBUTION, CONF_DEFAULT, CONF_SCAN_INTERVAL
+from homeassistant.const import ATTR_ATTRIBUTION, ATTR_CODE, CONF_DEFAULT, CONF_SCAN_INTERVAL
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
@@ -42,6 +42,8 @@ from custom_components.lkcomu_interrao._util import _make_log_prefix, IS_IN_RUSS
 from custom_components.lkcomu_interrao.const import (
     ATTRIBUTION_EN,
     ATTRIBUTION_RU,
+    ATTR_ACCOUNT_CODE,
+    ATTR_ACCOUNT_ID,
     CONF_DEV_PRESENTATION,
     CONF_NAME_FORMAT,
     DATA_API_OBJECTS,
@@ -260,6 +262,8 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
         return {
             ATTR_ATTRIBUTION: attribution,
             **(self.sensor_related_attributes or {}),
+            ATTR_ACCOUNT_ID: self._account.id,
+            ATTR_ACCOUNT_CODE: self._account.code,
         }
 
     @property
@@ -308,22 +312,12 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
                 data_entities: EntitiesDataType = self.hass.data[DATA_ENTITIES][entry_id]
                 cls_entities = data_entities.get(self.__class__)
                 if cls_entities:
-                    _LOGGER.debug(self.log_prefix + "FOUND ENTITIES TO REMOVE %s", cls_entities)
                     remove_indices = []
                     for idx, entity in enumerate(cls_entities):
                         if self is entity:
                             remove_indices.append(idx)
                     for idx in remove_indices:
-                        _LOGGER.debug(self.log_prefix + "REMOVING INDEX %s", idx)
                         cls_entities.pop(idx)
-                else:
-                    _LOGGER.debug(self.log_prefix + "NO ENTITIES TO REMOVE")
-
-            else:
-                _LOGGER.debug(self.log_prefix + "NO CONFIG ENTRY ID")
-
-        else:
-            _LOGGER.debug(self.log_prefix + "NO REGISTRY ENTRY")
 
     #################################################################################
     # Updater management API
@@ -368,6 +362,14 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
         finally:
             self.updater_restart()
 
+    async def async_update(self) -> None:
+        try:
+            await self.async_update_internal()
+        except EnergosbytException:
+            # @TODO: more sophisticated error handling
+            await self._account.api.async_authenticate()
+            await self.async_update_internal()
+
     #################################################################################
     # Functional base for inherent classes
     #################################################################################
@@ -383,13 +385,13 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
     ) -> Optional[Iterable[_TLkcomuEntity]]:
         raise NotImplementedError
 
-    @abstractmethod
-    async def async_update(self) -> None:
-        raise NotImplementedError
-
     #################################################################################
     # Data-oriented base for inherent classes
     #################################################################################
+
+    @abstractmethod
+    async def async_update_internal(self) -> None:
+        raise NotImplementedError
 
     @property
     @abstractmethod

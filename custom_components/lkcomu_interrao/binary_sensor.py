@@ -79,7 +79,7 @@ class LkcomuLastPaymentSensor(LkcomuEntity[AbstractAccountWithPayments], BinaryS
 
         return None
 
-    async def async_update(self) -> None:
+    async def async_update_internal(self) -> None:
         self._last_payment = await self._account.async_get_last_payment()
 
     #################################################################################
@@ -118,8 +118,6 @@ class LkcomuLastPaymentSensor(LkcomuEntity[AbstractAccountWithPayments], BinaryS
                 ATTR_PERIOD: payment.period.isoformat(),
                 ATTR_GROUP: payment.group_id,
             }
-
-        attributes["account_id"] = self._account.id
 
         return attributes
 

@@ -1,6 +1,6 @@
 {
     "domain": "lkcomu_interrao",
-    "name": "Inter RAO Energosbyt API",
+    "name": "Inter RAO Personal Cabinet (Energosbyt)",
     "documentation": "https://github.com/alryaz/hass-lkcomu-interrao",
     "issue_tracker": "https://github.com/alryaz/hass-lkcomu-interrao/issues",
     "dependencies": [],

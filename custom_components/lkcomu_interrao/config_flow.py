@@ -34,6 +34,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from custom_components.lkcomu_interrao._util import import_api_cls
 from custom_components.lkcomu_interrao.const import (
+    API_TYPE_DEFAULT,
     API_TYPE_NAMES,
     CONF_ACCOUNTS,
     CONF_INVOICES,
@@ -119,7 +120,7 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
                     default_user_agent = DEFAULT_USER_AGENT
 
             schema_user = OrderedDict()
-            schema_user[vol.Required(CONF_TYPE, default="moscow")] = vol.In(API_TYPE_NAMES)
+            schema_user[vol.Required(CONF_TYPE, default=API_TYPE_DEFAULT)] = vol.In(API_TYPE_NAMES)
             schema_user[vol.Required(CONF_USERNAME)] = str
             schema_user[vol.Required(CONF_PASSWORD)] = str
             schema_user[vol.Optional(CONF_USER_AGENT, default=default_user_agent)] = str

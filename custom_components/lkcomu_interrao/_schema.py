@@ -15,6 +15,7 @@ from homeassistant.helpers import config_validation as cv
 
 from custom_components.lkcomu_interrao._util import IS_IN_RUSSIA
 from custom_components.lkcomu_interrao.const import (
+    API_TYPE_DEFAULT,
     API_TYPE_NAMES,
     CONF_ACCOUNTS,
     CONF_DEV_PRESENTATION,
@@ -183,7 +184,7 @@ CONFIG_ENTRY_SCHEMA = vol.All(
     vol.Schema(
         {
             # Set default type to 'moscow' before validating further
-            vol.Optional(CONF_TYPE, default="moscow"): PROFILE_TYPE_VALIDATOR,
+            vol.Optional(CONF_TYPE, default=API_TYPE_DEFAULT): PROFILE_TYPE_VALIDATOR,
         },
         extra=vol.ALLOW_EXTRA,
     ),

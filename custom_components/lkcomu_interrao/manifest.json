@@ -10,7 +10,7 @@
         "python-dateutil==2.8.1",
         "cached-property==1.5.1",
         "fake_useragent==0.1.11",
-        "inter-rao-energosbyt-python==0.0.8"
+        "inter-rao-energosbyt-python==0.0.9"
     ],
     "config_flow": true
 }

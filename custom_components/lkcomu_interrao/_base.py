@@ -287,6 +287,17 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
                 )
 
     if platform_tasks:
+
+        async def _wrap_update_task(update_task):
+            try:
+                return await update_task
+            except BaseException as task_exception:
+                _LOGGER.exception(
+                    f"Error occurred during task execution: {repr(results)}",
+                    exc_info=task_exception,
+                )
+                return None
+
         all_updates_count = sum(map(len, platform_tasks.values()))
         _LOGGER.info(
             refresh_log_prefix
@@ -301,15 +312,15 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
         for platform, tasks in zip(
             platform_tasks.keys(),
             await asyncio.gather(
-                *map(lambda x: asyncio.gather(*x, return_exceptions=True), platform_tasks.values())
+                *map(
+                    lambda x: asyncio.gather(*map(_wrap_update_task, x)),
+                    platform_tasks.values(),
+                )
             ),
         ):
             all_new_entities = []
             for results in tasks:
                 if results is None:
-                    continue
-                if isinstance(results, BaseException):
-                    _LOGGER.exception(f"Error occurred: {repr(results)}", exc_info=results)
                     continue
                 all_new_entities.extend(results)
 

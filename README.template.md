@@ -1,4 +1,4 @@
-_ЕЛК ЖКХ &#xab;Интер РАО&#xbb; для Home Assistant_
+_ЕЛК ЖКХ &#xab;Интер РАО&#xbb;_ для _Home Assistant_
 ==================================================
 <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/master/images/header.png">
 

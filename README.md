@@ -183,64 +183,16 @@ _**N.B.** Подразумевается, что домен служб - `lkcomu
 - `account_code: str` - Номер лицевого счёта
 
 ## Поддерживаемые ЛК
-
 Ниже предъявлен перечень поддерживаемых ЛК с их внутренними идентификаторами.
 Данные идентификаторы используются как значение для поля `type`.
 
 > **Внимание:** Поддерживаются только ЛК физических лиц. Поддержка ЛК юридических лиц не планируется.
 
-### Алтайэнергосбыт &mdash; `altai`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/altai.png" height="50" alt="ЕЛК ЖКХ ССК">](https://lkfl.altaiensb.com)
-
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков
-- Отображение последних квитанций
-- Отображение последних платежей
-- Передача показаний по счётчикам
+### ЕЛК ЖКХ (АО «Мосэнергосбыт», МосОблЕИРЦ, ПАО «Россети Московский регион») - `moscow`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/moscow.png" height="50" alt="Ссылка на личный кабинет &quot;ЕЛК ЖКХ (АО «Мосэнергосбыт», МосОблЕИРЦ, ПАО «Россети Московский регион»)&quot;">](https://my.mosenergosbyt.ru)
 
 #### Пример конфигурации:
-```yaml
-...
-lkcomu_interrao:
-  type: altai
-  username: username1
-  password: password1
-```
 
-### Башэлектросбыт &mdash; `bashkortostan`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/bashkortostan.png" height="50" alt="ЕЛК ЖКХ ССК">](https://lkk.bashesk.ru/)
-
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков
-- Отображение последних квитанций
-- Отображение последних платежей
-- Передача показаний по счётчикам
-
-#### Пример конфигурации:
-```yaml
-...
-lkcomu_interrao:
-  type: bashkortostan
-  username: username1
-  password: password1
-```
-
-### Мосэнергосбыт &mdash; `moscow`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/moscow.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.mosenergosbyt.ru/)
-
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков<sup>1</sup>
-- Отображение последних квитанций
-- Отображение последних платежей
-- Передача показаний по счётчикам<sup>2</sup>
-
-_<sup>1</sup> Для поставщика ТКО может применяться виртуализация счётчика_<br>
-_<sup>2</sup> На данный момент только для Мосэнергосбыт и МосОблЕИРЦ_
-
-#### Пример конфигурации:
 ```yaml
 ...
 lkcomu_interrao:
@@ -249,17 +201,47 @@ lkcomu_interrao:
   password: password1
 ```
 
-### Орловский Энергосбыт &mdash; `oryol`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/oryol.png" height="50" alt="ЕЛК ЖКХ ССК" >](https://my.interrao-orel.ru/)
+#### Поставщик `MES` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/mes/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/mes/last_invoice.png" alt="Скриншот">
+</details>
 
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков
-- Отображение последних квитанций
-- Отображение последних платежей
-- Передача показаний по счётчикам
+#### Поставщик `KSG` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/ksg/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/ksg/last_invoice.png" alt="Скриншот">
+</details>
+
+#### Поставщик `MOE` &mdash; ЕПД
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/moe/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/moe/last_invoice.png" alt="Скриншот">
+</details>
+
+#### Поставщик `TKO` &mdash; ТКО
+Для поставщика реализован только базовый функционал.
+
+### ЛКК Орел (ООО «Орловский энергосбыт») - `oryol`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/oryol.png" height="50" alt="Ссылка на личный кабинет &quot;ЛКК Орел (ООО «Орловский энергосбыт»)&quot;">](https://my.interrao-orel.ru)
 
 #### Пример конфигурации:
+
 ```yaml
 ...
 lkcomu_interrao:
@@ -268,56 +250,77 @@ lkcomu_interrao:
   password: password1
 ```
 
-### Саратовэнерго &mdash; `saratov`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/saratov.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.saratovenergo.ru/)
+#### Поставщик `ORL_EPD` &mdash; ЕПД
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/orl_epd/last_invoice.png" alt="Скриншот">
+</details>
 
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков
-- Отображение последних квитанций
-- Отображение последних платежей
-- Передача показаний по счётчикам
+#### Поставщик `ORL` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/orl/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/orl/last_invoice.png" alt="Скриншот">
+</details>
+
+### ЛКК ЭСВ (Энергосбыт Волга) - `volga`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/volga.png" height="50" alt="Ссылка на личный кабинет &quot;ЛКК ЭСВ (Энергосбыт Волга)&quot;">](https://my.esbvolga.ru)
 
 #### Пример конфигурации:
+
 ```yaml
 ...
 lkcomu_interrao:
-  type: saratov
+  type: volga
   username: username1
   password: password1
 ```
 
+#### Поставщик `VLD` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/vld/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/vld/last_invoice.png" alt="Скриншот">
+</details>
 
-### Северная Сбытовая Компания (ССК) &mdash; `sevesk`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/sevesk.png" height="50" alt="ЕЛК ЖКХ ССК">](https://lk.sevesk.ru/)
-
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков
-- Отображение последних квитанций
-- Отображение последних платежей
-- Передача показаний по счётчикам
+### ЕЛК Томск (Томскэнергосбыт / Томск РТС) - `tomsk`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/tomsk.png" height="50" alt="Ссылка на личный кабинет &quot;ЕЛК Томск (Томскэнергосбыт / Томск РТС)&quot;">](https://my.tomskenergosbyt.ru)
 
 #### Пример конфигурации:
+
 ```yaml
 ...
 lkcomu_interrao:
-  type: sevesk
+  type: tomsk
   username: username1
   password: password1
 ```
 
-### Тамбовская Энергосбытовая Компания (ТЭСК) &mdash; `tambov`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/tambov.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.tesk.su/)
+#### Поставщик `TMK_NRG` &mdash; generic
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/tmk_nrg/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/tmk_nrg/last_invoice.png" alt="Скриншот">
+</details>
 
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков
-- Отображение последних квитанций
-- Отображение последних платежей
-- Передача показаний по счётчикам
+### ЛК ТЭСК (Тамбовская энергосбытовая компания) - `tambov`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/tambov.png" height="50" alt="Ссылка на личный кабинет &quot;ЛК ТЭСК (Тамбовская энергосбытовая компания)&quot;">](https://my.tesk.su)
 
 #### Пример конфигурации:
+
 ```yaml
 ...
 lkcomu_interrao:
@@ -326,51 +329,114 @@ lkcomu_interrao:
   password: password1
 ```
 
-### Томскэнергосбыт &mdash; `tomsk`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/tomsk.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.tomskenergosbyt.ru/)
+#### Поставщик `TMB` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/tmb/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/tmb/last_invoice.png" alt="Скриншот">
+</details>
 
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков<sup>1</sup>
-- Отображение последних квитанций
-- Отображение последних платежей<sup>1</sup>
-- Передача показаний по счётчикам<sup>1</sup>
-
-_<sup>1</sup> На данный момент только АО "Томскэнергосбыт"_
+### ЕЛК Вологда (Северная сбытовая компания) - `sevesk`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/sevesk.png" height="50" alt="Ссылка на личный кабинет &quot;ЕЛК Вологда (Северная сбытовая компания)&quot;">](https://lk.sevesk.ru)
 
 #### Пример конфигурации:
+
 ```yaml
 ...
 lkcomu_interrao:
-  type: tomsk
+  type: sevesk
   username: username1
   password: password1
-
-  # Дополнительные параметры (необязательно):
-  # Данные параметры влияют на все учётные записи под профилем.
-  
-  # Отображние только данных от АО "Томскэнергосбыт" (не влияет на квитанции)
-  byt_only: false
 ```
 
-### Энергосбыт Волга - `volga`
-[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/volga.png" height="50" alt="ЕЛК ЖКХ ССК">](https://my.esbvolga.ru/)
+#### Поставщик `VLG` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/vlg/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/vlg/last_invoice.png" alt="Скриншот">
+</details>
 
-#### Поддерживается:
-- Отображение дополнительной информации об учётной записи
-- Отображение счётчиков
-- Отображение последних квитанций
-- Отображение последних платежей
-- Передача показаний по счётчикам
+### ЛК Саратов (ПАО «Саратовэнерго») - `saratov`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/saratov.png" height="50" alt="Ссылка на личный кабинет &quot;ЛК Саратов (ПАО «Саратовэнерго»)&quot;">](https://my.saratovenergo.ru)
 
 #### Пример конфигурации:
+
 ```yaml
 ...
 lkcomu_interrao:
-  type: volga
+  type: saratov
   username: username1
   password: password1
 ```
+
+#### Поставщик `SAR` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/sar/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/sar/last_invoice.png" alt="Скриншот">
+</details>
+
+### ЛКК ЭСКБ (Башэлектросбыт) - `bashkortostan`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/bashkortostan.png" height="50" alt="Ссылка на личный кабинет &quot;ЛКК ЭСКБ (Башэлектросбыт)&quot;">](https://lkk.bashesk.ru)
+
+#### Пример конфигурации:
+
+```yaml
+...
+lkcomu_interrao:
+  type: bashkortostan
+  username: username1
+  password: password1
+```
+
+#### Поставщик `UFA` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/ufa/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/ufa/last_invoice.png" alt="Скриншот">
+</details>
+
+### ЛК Алтай (АО «АлтайЭнергосбыт») - `altai`
+[<img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/headers/altai.png" height="50" alt="Ссылка на личный кабинет &quot;ЛК Алтай (АО «АлтайЭнергосбыт»)&quot;">](https://lkfl.altaiensb.com)
+
+#### Пример конфигурации:
+
+```yaml
+...
+lkcomu_interrao:
+  type: altai
+  username: username1
+  password: password1
+```
+
+#### Поставщик `ALT` &mdash; Электричество
+Для поставщика реализована поддержка следующих объектов:
+<details>
+  <summary>Последний зарегистрированный платёж</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/alt/last_payment.png" alt="Скриншот">
+</details>
+<details>
+  <summary>Последняя выпущенная квитанция</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-lkcomu-interrao/main/images/providers/alt/last_invoice.png" alt="Скриншот">
+</details>
+
+
 
 ## Дополнительная информация
 > @ TODO @

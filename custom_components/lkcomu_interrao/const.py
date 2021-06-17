@@ -58,11 +58,11 @@ ATTR_TOTAL_AREA: Final = "total_area"
 ATTR_UNIT: Final = "unit"
 
 CONF_ACCOUNTS: Final = "accounts"
-CONF_INVOICES: Final = "invoices"
+CONF_LAST_INVOICE: Final = "last_invoice"
 CONF_METERS: Final = "meters"
 CONF_NAME_FORMAT: Final = "name_format"
 CONF_USER_AGENT: Final = "user_agent"
-CONF_PAYMENTS: Final = "payments"
+CONF_LAST_PAYMENT: Final = "last_payment"
 CONF_DEV_PRESENTATION: Final = "dev_presentation"
 CONF_LOGOS: Final = "logos"
 

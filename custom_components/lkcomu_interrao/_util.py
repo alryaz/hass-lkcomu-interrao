@@ -49,12 +49,15 @@ def import_api_cls(type_: str) -> Type["BaseEnergosbytAPI"]:
     return __import__("inter_rao_energosbyt.api." + type_, globals(), locals(), ("API",)).API
 
 
-RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w\.]+\.ico)"')
+_RE_USERNAME_MASK = re.compile(r"^(\W*)(.).*(.)$")
 
 
-def _code_search_index(code: str):
-    return
+def mask_username(username: str):
+    parts = username.split("@")
+    return "@".join(map(lambda x: _RE_USERNAME_MASK.sub(r"\1\2***\3", x), parts))
 
+
+_RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w\.]+\.ico)"')
 
 ICONS_FOR_PROVIDERS: Dict[str, Optional[Union[asyncio.Future, str]]] = {}
 
@@ -103,36 +106,13 @@ async def async_get_icons_for_providers(
         async with session.get(base_url + "/" + manifest["main.js"]) as response:
             js_code = await response.text()
 
-        m = RE_FAVICON.search(js_code)
+        m = _RE_FAVICON.search(js_code)
         if m:
             url = base_url + "/" + m.group(1)
             for code in iter_types:
                 icons.setdefault(code, url)
 
     return icons
-
-
-async def async_update_provider_icons(api: "BaseEnergosbytAPI") -> Optional[str]:
-    if code in ICONS_FOR_PROVIDERS:
-        current_code = ICONS_FOR_PROVIDERS[code]
-        if isinstance(current_code, asyncio.Future):
-            return await current_code
-        return current_code
-
-    code_future = asyncio.get_event_loop().create_future()
-    ICONS_FOR_PROVIDERS[code] = code_future
-
-    try:
-        result = await async_get_icons_for_providers(api, code)
-    except BaseException as e:
-        code_future.set_exception(e)
-        del ICONS_FOR_PROVIDERS[code]
-        raise
-    else:
-        code_future.set_result(result)
-        ICONS_FOR_PROVIDERS[code] = result
-
-    return result
 
 
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo

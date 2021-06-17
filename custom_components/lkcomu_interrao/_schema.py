@@ -19,11 +19,11 @@ from custom_components.lkcomu_interrao.const import (
     API_TYPE_NAMES,
     CONF_ACCOUNTS,
     CONF_DEV_PRESENTATION,
-    CONF_INVOICES,
+    CONF_LAST_INVOICE,
     CONF_LOGOS,
     CONF_METERS,
     CONF_NAME_FORMAT,
-    CONF_PAYMENTS,
+    CONF_LAST_PAYMENT,
     CONF_USER_AGENT,
     DEFAULT_NAME_FORMAT_EN_ACCOUNTS,
     DEFAULT_NAME_FORMAT_EN_INVOICES,
@@ -58,9 +58,9 @@ else:
 NAME_FORMAT_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_ACCOUNTS, default=default_name_format_accounts): cv.string,
-        vol.Optional(CONF_INVOICES, default=default_name_format_invoices): cv.string,
+        vol.Optional(CONF_LAST_INVOICE, default=default_name_format_invoices): cv.string,
         vol.Optional(CONF_METERS, default=default_name_format_meters): cv.string,
-        vol.Optional(CONF_PAYMENTS, default=default_name_format_payments): cv.string,
+        vol.Optional(CONF_LAST_PAYMENT, default=default_name_format_payments): cv.string,
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -69,9 +69,9 @@ NAME_FORMAT_SCHEMA = vol.Schema(
 SCAN_INTERVAL_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_ACCOUNTS, default=DEFAULT_SCAN_INTERVAL): cv.positive_time_period,
-        vol.Optional(CONF_INVOICES, default=DEFAULT_SCAN_INTERVAL): cv.positive_time_period,
+        vol.Optional(CONF_LAST_INVOICE, default=DEFAULT_SCAN_INTERVAL): cv.positive_time_period,
         vol.Optional(CONF_METERS, default=DEFAULT_SCAN_INTERVAL): cv.positive_time_period,
-        vol.Optional(CONF_PAYMENTS, default=DEFAULT_SCAN_INTERVAL): cv.positive_time_period,
+        vol.Optional(CONF_LAST_PAYMENT, default=DEFAULT_SCAN_INTERVAL): cv.positive_time_period,
     }
 )
 
@@ -86,10 +86,11 @@ def _validator_name_format_schema(schema):
 GENERIC_ACCOUNT_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_ACCOUNTS, default=True): cv.boolean,
-        vol.Optional(CONF_INVOICES, default=True): cv.boolean,
+        vol.Optional(CONF_LAST_INVOICE, default=True): cv.boolean,
         vol.Optional(CONF_METERS, default=True): cv.boolean,
-        vol.Optional(CONF_PAYMENTS, default=True): cv.boolean,
+        vol.Optional(CONF_LAST_PAYMENT, default=True): cv.boolean,
         vol.Optional(CONF_LOGOS, default=True): cv.boolean,
+        vol.Optional(CONF_DEV_PRESENTATION, default=False): cv.boolean,
         vol.Optional(CONF_NAME_FORMAT, default=lambda: NAME_FORMAT_SCHEMA({})): vol.Any(
             vol.All(cv.string, lambda x: {CONF_ACCOUNTS: x}, NAME_FORMAT_SCHEMA),
             NAME_FORMAT_SCHEMA,
@@ -98,7 +99,7 @@ GENERIC_ACCOUNT_SCHEMA = vol.Schema(
             vol.All(
                 cv.positive_time_period,
                 lambda x: dict.fromkeys(
-                    (CONF_ACCOUNTS, CONF_INVOICES, CONF_METERS, CONF_PAYMENTS), x
+                    (CONF_ACCOUNTS, CONF_LAST_INVOICE, CONF_METERS, CONF_LAST_PAYMENT), x
                 ),
                 SCAN_INTERVAL_SCHEMA,
             ),

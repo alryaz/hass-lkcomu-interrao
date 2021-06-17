@@ -309,7 +309,7 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
                 if results is None:
                     continue
                 if isinstance(results, BaseException):
-                    _LOGGER.error(f"Error occurred: {repr(results)}")
+                    _LOGGER.exception(f"Error occurred: {repr(results)}", exc_info=results)
                     continue
                 all_new_entities.extend(results)
 

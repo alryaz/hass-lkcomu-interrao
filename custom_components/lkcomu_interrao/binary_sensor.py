@@ -8,6 +8,7 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.helpers.typing import ConfigType, StateType
+from homeassistant.util import slugify
 
 from custom_components.lkcomu_interrao._base import LkcomuEntity, make_common_async_setup_entry
 from custom_components.lkcomu_interrao.const import (
@@ -36,9 +37,9 @@ class LkcomuLastPayment(LkcomuEntity[AbstractAccountWithPayments], BinarySensorE
         super().__init__(*args, **kwargs)
         self._last_payment = last_payment
 
-        self._entity_id: Optional[
-            str
-        ] = f"binary_sensor.{self.account_provider_code or 'unknown'}_last_payment_{self.code}"
+        self._entity_id: Optional[str] = f"binary_sensor." + slugify(
+            f"{self.account_provider_code or 'unknown'}_{self._account.code}_last_payment"
+        )
 
     @property
     def is_on(self) -> bool:

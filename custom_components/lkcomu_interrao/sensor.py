@@ -31,6 +31,7 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import slugify
 
 from custom_components.lkcomu_interrao._base import LkcomuEntity, make_common_async_setup_entry
 from custom_components.lkcomu_interrao.const import (
@@ -53,7 +54,9 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_INVOICE_ID,
     ATTR_LAST_INDICATIONS_DATE,
     ATTR_LIVING_AREA,
+    ATTR_METER_CATEGORY,
     ATTR_METER_CODE,
+    ATTR_METER_MODEL,
     ATTR_MODEL,
     ATTR_NOTIFICATION,
     ATTR_PAID,
@@ -95,7 +98,7 @@ from inter_rao_energosbyt.interfaces import (
     AbstractSubmittableMeter,
     Account,
 )
-from inter_rao_energosbyt.presets.byt import _AccountWithBytInfo
+from inter_rao_energosbyt.presets.byt import AccountWithBytInfo, BytInfoSingle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -162,9 +165,9 @@ class LkcomuAccount(LkcomuEntity[Account]):
         super().__init__(*args, *kwargs)
         self._balance = balance
 
-        self.entity_id: Optional[
-            str
-        ] = f"sensor.{self.account_provider_code or 'unknown'}_account_{self.code}"
+        self.entity_id: Optional[str] = f"sensor." + slugify(
+            f"{self.account_provider_code or 'unknown'}_{self._account.code}_account"
+        )
 
     @property
     def entity_picture(self) -> Optional[str]:
@@ -251,7 +254,7 @@ class LkcomuAccount(LkcomuEntity[Account]):
         else:
             attributes[ATTR_STATUS] = STATE_OK
 
-        if isinstance(account, _AccountWithBytInfo):
+        if isinstance(account, AccountWithBytInfo):
             info = account.info
             if info:
                 attributes.update(
@@ -259,8 +262,27 @@ class LkcomuAccount(LkcomuEntity[Account]):
                         ATTR_FULL_NAME: info.full_name,
                         ATTR_LIVING_AREA: info.living_area,
                         ATTR_TOTAL_AREA: info.total_area,
+                        ATTR_METER_CATEGORY: info.meter_category,
+                        ATTR_METER_CODE: info.meter_code,
                     }
                 )
+
+                zones = account.info.zones
+                if zones is not None:
+                    for zone_id, zone_def in zones.items():
+                        attrs = ("name", "description", "tariff")
+                        for prefix in ("", "within_"):
+                            values = tuple(getattr(zone_def, prefix + attr) for attr in attrs)
+                            if any(values):
+                                attributes.update(
+                                    zip(
+                                        map(lambda x: f"zone_{zone_id}_{prefix}{x}", attrs),
+                                        values,
+                                    )
+                                )
+
+                if isinstance(info, BytInfoSingle):
+                    attributes[ATTR_METER_MODEL] = info.meter_model
 
         self._handle_dev_presentation(
             attributes,
@@ -271,6 +293,8 @@ class LkcomuAccount(LkcomuEntity[Account]):
                 ATTR_ADDRESS,
                 ATTR_LIVING_AREA,
                 ATTR_TOTAL_AREA,
+                ATTR_METER_MODEL,
+                ATTR_METER_CODE,
             ),
         )
 
@@ -308,8 +332,11 @@ class LkcomuAccount(LkcomuEntity[Account]):
 
     async def async_update_internal(self) -> None:
         await self._account.async_update_related()
-        if isinstance(self._account, AbstractAccountWithBalance):
-            self._balance = await self._account.async_get_balance()
+        account = self._account
+        if isinstance(account, AbstractAccountWithBalance):
+            self._balance = await account.async_get_balance()
+        if isinstance(account, AccountWithBytInfo):
+            await account.async_update_info()
 
         self.platform.async_register_entity_service(
             SERVICE_SET_DESCRIPTION,
@@ -368,9 +395,9 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
         super().__init__(*args, **kwargs)
         self._meter = meter
 
-        self.entity_id: Optional[
-            str
-        ] = f"sensor.{self.account_provider_code or 'unknown'}_meter_{self.code}"
+        self.entity_id: Optional[str] = f"sensor." + slugify(
+            f"{self.account_provider_code or 'unknown'}_{self._account.code}_meter_{self.code}"
+        )
 
     #################################################################################
     # Implementation base of inherent class
@@ -736,9 +763,9 @@ class LkcomuLastInvoice(LkcomuEntity[AbstractAccountWithInvoices]):
         super().__init__(*args, **kwargs)
         self._last_invoice = last_invoice
 
-        self.entity_id: Optional[
-            str
-        ] = f"sensor.{self.account_provider_code or 'unknown'}_last_invoice_{self.code}"
+        self.entity_id: Optional[str] = "sensor." + slugify(
+            f"{self.account_provider_code or 'unknown'}_{self._account.code}_last_invoice"
+        )
 
     @property
     def code(self) -> str:

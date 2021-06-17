@@ -152,11 +152,9 @@ CALCULATE_PUSH_INDICATIONS_SCHEMA = {
 
 SERVICE_PUSH_INDICATIONS: Final = "push_indications"
 SERVICE_PUSH_INDICATIONS_SCHEMA: Final = CALCULATE_PUSH_INDICATIONS_SCHEMA
-EVENT_PUSH_INDICATIONS: Final = DOMAIN + "_push_indications"
 
 SERVICE_CALCULATE_INDICATIONS: Final = "calculate_indications"
 SERVICE_CALCULATE_INDICATIONS_SCHEMA: Final = CALCULATE_PUSH_INDICATIONS_SCHEMA
-EVENT_CALCULATE_INDICATIONS: Final = DOMAIN + "_calculate_indications"
 
 _SERVICE_SCHEMA_BASE_DATED: Final = {
     vol.Optional(ATTR_START, default=None): vol.Any(vol.Equal(None), cv.datetime),
@@ -168,9 +166,9 @@ FEATURE_CALCULATE_INDICATIONS: Final = FEATURE_PUSH_INDICATIONS * 2
 FEATURE_GET_PAYMENTS: Final = FEATURE_CALCULATE_INDICATIONS * 2
 FEATURE_GET_INVOICES: Final = FEATURE_GET_PAYMENTS * 2
 
-EVENT_SET_DESCRIPTION: Final = DOMAIN + "_set_description"
-EVENT_GET_PAYMENTS: Final = DOMAIN + "_get_payments"
-EVENT_GET_INVOICES: Final = DOMAIN + "_get_invoices"
+SERVICE_SET_DESCRIPTION: Final = "set_description"
+SERVICE_GET_PAYMENTS: Final = "get_payments"
+SERVICE_GET_INVOICES: Final = "get_invoices"
 
 _TLkcomuEntity = TypeVar("_TLkcomuEntity", bound=LkcomuEntity)
 
@@ -205,20 +203,6 @@ class LkcomuAccount(LkcomuEntity[Account]):
             "get_payments": _SERVICE_SCHEMA_BASE_DATED,
         },
     }
-
-    def register_supported_services(self, for_object: Optional[Any] = None) -> None:
-        for type_feature, services in self._supported_services.items():
-            result, features = (
-                (True, None)
-                if type_feature is None
-                else (isinstance(for_object, type_feature[0]), (int(type_feature[1]),))
-            )
-
-            if result:
-                for service, schema in services.items():
-                    self.platform.async_register_entity_service(
-                        service, schema, "async_service_" + service, features
-                    )
 
     def __init__(self, *args, balance: Optional[AbstractBalance] = None, **kwargs) -> None:
         super().__init__(*args, *kwargs)
@@ -466,7 +450,7 @@ class LkcomuAccount(LkcomuEntity[Account]):
 
         finally:
             self.hass.bus.async_fire(
-                event_type=EVENT_GET_PAYMENTS,
+                event_type=DOMAIN + "_" + SERVICE_GET_PAYMENTS,
                 event_data=event_data,
             )
 
@@ -494,12 +478,14 @@ class LkcomuAccount(LkcomuEntity[Account]):
             ATTR_END: dt_end.isoformat(),
             ATTR_RESULT: results,
             ATTR_COMMENT: None,
+            ATTR_SUM: 0.0,
         }
 
         try:
             invoices = await account.async_get_invoices(dt_start, dt_end)
 
             for invoice in invoices:
+                event_data[ATTR_SUM] += invoice.total
                 results.append(
                     {
                         ATTR_PERIOD: invoice.period.isoformat(),
@@ -524,7 +510,7 @@ class LkcomuAccount(LkcomuEntity[Account]):
 
         finally:
             self.hass.bus.async_fire(
-                event_type=EVENT_GET_INVOICES,
+                event_type=DOMAIN + "_" + SERVICE_GET_INVOICES,
                 event_data=event_data,
             )
 
@@ -565,7 +551,7 @@ class LkcomuAccount(LkcomuEntity[Account]):
 
         finally:
             self.hass.bus.async_fire(
-                event_type=EVENT_SET_DESCRIPTION,
+                event_type=DOMAIN + "_" + SERVICE_SET_DESCRIPTION,
                 event_data=event_data,
             )
 
@@ -576,6 +562,15 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
     """The class for this sensor"""
 
     config_key: ClassVar[str] = CONF_METERS
+
+    _supported_services: ClassVar[SupportedServicesType] = {
+        (AbstractSubmittableMeter, FEATURE_PUSH_INDICATIONS): {
+            "push_indications": SERVICE_PUSH_INDICATIONS_SCHEMA,
+        },
+        (AbstractCalculatableMeter, FEATURE_CALCULATE_INDICATIONS): {
+            "calculate_indications": SERVICE_PUSH_INDICATIONS_SCHEMA,
+        },
+    }
 
     def __init__(self, *args, meter: AbstractMeter, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -621,27 +616,13 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
 
     async def async_update_internal(self) -> None:
         meters = await self._account.async_get_meters()
-        meter_data = meters.get(self._meter.id)
-        if meter_data is None:
+        meter = meters.get(self._meter.id)
+        if meter is None:
             self.hass.async_create_task(self.async_remove())
         else:
-            if isinstance(meter_data, AbstractSubmittableMeter):
-                self.platform.async_register_entity_service(
-                    SERVICE_PUSH_INDICATIONS,
-                    SERVICE_PUSH_INDICATIONS_SCHEMA,
-                    "async_push_indications",
-                    (FEATURE_PUSH_INDICATIONS,),
-                )
+            self.register_supported_services(meter)
 
-            if isinstance(meter_data, AbstractCalculatableMeter):
-                self.platform.async_register_entity_service(
-                    SERVICE_CALCULATE_INDICATIONS,
-                    SERVICE_CALCULATE_INDICATIONS_SCHEMA,
-                    "async_calculate_indications",
-                    (FEATURE_CALCULATE_INDICATIONS,),
-                )
-
-            self._meter = meter_data
+            self._meter = meter
 
     #################################################################################
     # Data-oriented implementation of inherent class
@@ -834,7 +815,7 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
 
         return indications
 
-    async def async_push_indications(self, **call_data):
+    async def async_service_push_indications(self, **call_data):
         """
         Push indications entity service.
         :param call_data: Parameters for service call
@@ -884,13 +865,13 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
                 self._fire_callback_event(
                     call_data,
                     event_data,
-                    EVENT_PUSH_INDICATIONS,
+                    DOMAIN + "_" + SERVICE_PUSH_INDICATIONS,
                     "Передача показаний",
                 )
 
                 _LOGGER.info(self.log_prefix + "End handling indications submission")
 
-    async def async_calculate_indications(self, **call_data):
+    async def async_service_calculate_indications(self, **call_data):
         meter = self._meter
 
         if meter is None:
@@ -912,8 +893,8 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
 
             calculation = await meter.async_calculate_indications(
                 **indications,
-                ignore_period=call_data[ATTR_IGNORE_PERIOD],
-                ignore_indications_check=call_data[ATTR_IGNORE_INDICATIONS],
+                ignore_periods=call_data[ATTR_IGNORE_PERIOD],
+                ignore_values=call_data[ATTR_IGNORE_INDICATIONS],
             )
 
         except EnergosbytException as e:
@@ -936,7 +917,7 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
             self._fire_callback_event(
                 call_data,
                 event_data,
-                EVENT_CALCULATE_INDICATIONS,
+                DOMAIN + "_" + SERVICE_CALCULATE_INDICATIONS,
                 "Подсчёт показаний",
             )
 

@@ -62,6 +62,10 @@ _RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w\.]+\.ico)"'
 ICONS_FOR_PROVIDERS: Dict[str, Optional[Union[asyncio.Future, str]]] = {}
 
 
+def _make_code_search_index(code):
+    return tuple(map(str.lower, (code + "Logo", "defaultMarker" + code)))
+
+
 async def async_get_icons_for_providers(
     api: "BaseEnergosbytAPI", provider_types: Set[int]
 ) -> Dict[str, str]:
@@ -83,7 +87,10 @@ async def async_get_icons_for_providers(
             iter_types.append(code)
 
     for code in iter_types:
-        search_index = tuple(map(str.lower, (code + "Logo", "defaultMarker" + code)))
+        search_index = _make_code_search_index(code)
+        if "_" in code:
+            root_code = code.split("_")[0]
+            search_index = (*search_index, *_make_code_search_index(root_code))
         for key in manifest:
             lower_key = key.lower()
             for index_key in search_index:
@@ -101,6 +108,10 @@ async def async_get_icons_for_providers(
                 )
             ):
                 icons[code] = base_url + "/" + manifest[key]
+
+    # Diversion for ProviderType.TKO
+    if ProviderType.TKO.name.lower() not in icons and ProviderType.MES.name.lower() in icons:
+        icons[ProviderType.TKO.name.lower()] = icons[ProviderType.MES.name.lower()]
 
     if "main.js" in manifest:
         async with session.get(base_url + "/" + manifest["main.js"]) as response:

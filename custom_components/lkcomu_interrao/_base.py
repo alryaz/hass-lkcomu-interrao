@@ -144,6 +144,9 @@ async def async_register_update_delegator(
         await async_refresh_api_data(hass, config_entry)
 
 
+DEV_CLASSES_PROCESSED = set()
+
+
 async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEntry):
     entry_id = config_entry.entry_id
     api: "BaseEnergosbytAPI" = hass.data[DATA_API_OBJECTS][entry_id]
@@ -200,7 +203,6 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
     final_config: ConfigType = dict(hass.data[DATA_FINAL_CONFIG][entry_id])
 
     dev_presentation = final_config.get(CONF_DEV_PRESENTATION)
-    dev_classes_processed = set()
     dev_log_prefix = log_prefix_base + "[dev] "
 
     if dev_presentation:
@@ -247,7 +249,7 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
 
                 if dev_presentation:
                     dev_key = (entity_cls, account.provider_type)
-                    if dev_key in dev_classes_processed:
+                    if dev_key in DEV_CLASSES_PROCESSED:
                         _LOGGER.debug(
                             cls_log_prefix_base
                             + "[dev] "
@@ -261,7 +263,7 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
                         )
                         continue
 
-                    dev_classes_processed.add(dev_key)
+                    DEV_CLASSES_PROCESSED.add(dev_key)
 
                 current_entities = entities.setdefault(entity_cls, {})
 

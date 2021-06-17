@@ -250,7 +250,7 @@ def _simple_dated_request(service_id: str):
         f"{_HEADER_PARAMETERS}\n"
         f"\n"
         f"- `{ATTR_START}: str | None` - _(опционально)_ Дата начала периода\n"
-        f"- `{ATTR_END}: str | None` - _(опционально)_ Дата начала периода\n"
+        f"- `{ATTR_END}: str | None` - _(опционально)_ Дата окончания периода\n"
         f"\n"
         f"{_HEADER_RESULTS}\n"
         f"\n"

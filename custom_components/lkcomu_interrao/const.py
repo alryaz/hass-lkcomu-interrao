@@ -3,8 +3,8 @@ from typing import Final
 
 DOMAIN: Final = "lkcomu_interrao"
 
-ATTRIBUTION_RU: Final = "Данные получены с %s"
 ATTRIBUTION_EN: Final = "Data acquired from %s"
+ATTRIBUTION_RU: Final = "Данные получены с %s"
 
 ATTR_ACCOUNT_CODE: Final = "account_code"
 ATTR_ACCOUNT_ID: Final = "account_id"
@@ -34,7 +34,9 @@ ATTR_LAST_PAYMENT_AMOUNT: Final = "last_payment_amount"
 ATTR_LAST_PAYMENT_DATE: Final = "last_payment_date"
 ATTR_LAST_PAYMENT_STATUS: Final = "last_payment_status"
 ATTR_LIVING_AREA: Final = "living_area"
+ATTR_METER_CATEGORY: Final = "meter_category"
 ATTR_METER_CODE: Final = "meter_code"
+ATTR_METER_MODEL: Final = "meter_model"
 ATTR_MODEL: Final = "model"
 ATTR_NOTIFICATION: Final = "notification"
 ATTR_PAID: Final = "paid"
@@ -58,13 +60,13 @@ ATTR_TOTAL_AREA: Final = "total_area"
 ATTR_UNIT: Final = "unit"
 
 CONF_ACCOUNTS: Final = "accounts"
+CONF_DEV_PRESENTATION: Final = "dev_presentation"
 CONF_LAST_INVOICE: Final = "last_invoice"
+CONF_LAST_PAYMENT: Final = "last_payment"
+CONF_LOGOS: Final = "logos"
 CONF_METERS: Final = "meters"
 CONF_NAME_FORMAT: Final = "name_format"
 CONF_USER_AGENT: Final = "user_agent"
-CONF_LAST_PAYMENT: Final = "last_payment"
-CONF_DEV_PRESENTATION: Final = "dev_presentation"
-CONF_LOGOS: Final = "logos"
 
 DATA_API_OBJECTS: Final = DOMAIN + "_api_objects"
 DATA_ENTITIES: Final = DOMAIN + "_entities"
@@ -75,14 +77,14 @@ DATA_UPDATE_LISTENERS: Final = DOMAIN + "_update_listeners"
 DATA_YAML_CONFIG: Final = DOMAIN + "_yaml_config"
 
 DEFAULT_NAME_FORMAT_EN_ACCOUNTS: Final = "{provider_code_upper} {account_code} {type_en_cap}"
-DEFAULT_NAME_FORMAT_EN_INVOICES: Final = "{provider_code_upper} {account_code} {type_en_cap}"
 DEFAULT_NAME_FORMAT_EN_METERS: Final = "{provider_code_upper} {account_code} {type_en_cap} {code}"
-DEFAULT_NAME_FORMAT_EN_PAYMENTS: Final = "{provider_code_upper} {account_code} {type_en_cap}"
+DEFAULT_NAME_FORMAT_EN_LAST_INVOICE: Final = "{provider_code_upper} {account_code} {type_en_cap}"
+DEFAULT_NAME_FORMAT_EN_LAST_PAYMENT: Final = "{provider_code_upper} {account_code} {type_en_cap}"
 
 DEFAULT_NAME_FORMAT_RU_ACCOUNTS: Final = "{provider_code_upper} {account_code} {type_ru_cap}"
-DEFAULT_NAME_FORMAT_RU_INVOICES: Final = "{provider_code_upper} {account_code} {type_ru_cap}"
 DEFAULT_NAME_FORMAT_RU_METERS: Final = "{provider_code_upper} {account_code} {type_ru_cap} {code}"
-DEFAULT_NAME_FORMAT_RU_PAYMRUTS: Final = "{provider_code_upper} {account_code} {type_ru_cap}"
+DEFAULT_NAME_FORMAT_RU_LAST_INVOICE: Final = "{provider_code_upper} {account_code} {type_ru_cap}"
+DEFAULT_NAME_FORMAT_RU_LAST_PAYMENT: Final = "{provider_code_upper} {account_code} {type_ru_cap}"
 
 DEFAULT_MAX_INDICATIONS: Final = 3
 DEFAULT_SCAN_INTERVAL: Final = 60 * 60  # 1 hour
@@ -103,11 +105,11 @@ API_TYPE_NAMES: Final = {
 
 SUPPORTED_PLATFORMS: Final = ("sensor", "binary_sensor")
 
-FORMAT_VAR_TYPE_RU: Final = "type_ru"
-FORMAT_VAR_TYPE_EN: Final = "type_en"
+FORMAT_VAR_ACCOUNT_CODE: Final = "account_code"
+FORMAT_VAR_ACCOUNT_ID: Final = "account_id"
 FORMAT_VAR_CODE: Final = "code"
 FORMAT_VAR_ID: Final = "id"
-FORMAT_VAR_ACCOUNT_ID: Final = "account_id"
-FORMAT_VAR_ACCOUNT_CODE: Final = "account_code"
 FORMAT_VAR_PROVIDER_CODE: Final = "provider_code"
 FORMAT_VAR_PROVIDER_NAME: Final = "provider_name"
+FORMAT_VAR_TYPE_EN: Final = "type_en"
+FORMAT_VAR_TYPE_RU: Final = "type_ru"

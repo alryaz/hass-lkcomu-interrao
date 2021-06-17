@@ -26,13 +26,13 @@ from custom_components.lkcomu_interrao.const import (
     CONF_LAST_PAYMENT,
     CONF_USER_AGENT,
     DEFAULT_NAME_FORMAT_EN_ACCOUNTS,
-    DEFAULT_NAME_FORMAT_EN_INVOICES,
+    DEFAULT_NAME_FORMAT_EN_LAST_INVOICE,
     DEFAULT_NAME_FORMAT_EN_METERS,
-    DEFAULT_NAME_FORMAT_EN_PAYMENTS,
+    DEFAULT_NAME_FORMAT_EN_LAST_PAYMENT,
     DEFAULT_NAME_FORMAT_RU_ACCOUNTS,
-    DEFAULT_NAME_FORMAT_RU_INVOICES,
+    DEFAULT_NAME_FORMAT_RU_LAST_INVOICE,
     DEFAULT_NAME_FORMAT_RU_METERS,
-    DEFAULT_NAME_FORMAT_RU_PAYMRUTS,
+    DEFAULT_NAME_FORMAT_RU_LAST_PAYMENT,
     DEFAULT_SCAN_INTERVAL,
 )
 
@@ -43,24 +43,34 @@ TFiltered = TypeVar("TFiltered")
 MIN_SCAN_INTERVAL = timedelta(seconds=60)
 
 
-if IS_IN_RUSSIA:
-    default_name_format_accounts = DEFAULT_NAME_FORMAT_RU_ACCOUNTS
-    default_name_format_invoices = DEFAULT_NAME_FORMAT_RU_INVOICES
-    default_name_format_meters = DEFAULT_NAME_FORMAT_RU_METERS
-    default_name_format_payments = DEFAULT_NAME_FORMAT_RU_PAYMRUTS
-else:
-    default_name_format_accounts = DEFAULT_NAME_FORMAT_EN_ACCOUNTS
-    default_name_format_invoices = DEFAULT_NAME_FORMAT_EN_INVOICES
-    default_name_format_meters = DEFAULT_NAME_FORMAT_EN_METERS
-    default_name_format_payments = DEFAULT_NAME_FORMAT_EN_PAYMENTS
+(
+    default_name_format_accounts,
+    default_name_format_last_invoice,
+    default_name_format_meters,
+    default_name_format_last_payment,
+) = (
+    (
+        DEFAULT_NAME_FORMAT_RU_ACCOUNTS,
+        DEFAULT_NAME_FORMAT_RU_LAST_INVOICE,
+        DEFAULT_NAME_FORMAT_RU_METERS,
+        DEFAULT_NAME_FORMAT_RU_LAST_PAYMENT,
+    )
+    if IS_IN_RUSSIA
+    else (
+        DEFAULT_NAME_FORMAT_EN_ACCOUNTS,
+        DEFAULT_NAME_FORMAT_EN_LAST_INVOICE,
+        DEFAULT_NAME_FORMAT_EN_METERS,
+        DEFAULT_NAME_FORMAT_EN_LAST_PAYMENT,
+    )
+)
 
 
 NAME_FORMAT_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_ACCOUNTS, default=default_name_format_accounts): cv.string,
-        vol.Optional(CONF_LAST_INVOICE, default=default_name_format_invoices): cv.string,
+        vol.Optional(CONF_LAST_INVOICE, default=default_name_format_last_invoice): cv.string,
         vol.Optional(CONF_METERS, default=default_name_format_meters): cv.string,
-        vol.Optional(CONF_LAST_PAYMENT, default=default_name_format_payments): cv.string,
+        vol.Optional(CONF_LAST_PAYMENT, default=default_name_format_last_payment): cv.string,
     },
     extra=vol.PREVENT_EXTRA,
 )

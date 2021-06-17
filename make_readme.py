@@ -3,11 +3,11 @@ import json
 import re
 from genericpath import exists
 from io import StringIO
-from itertools import chain
 from os import getcwd, listdir, makedirs, path, rename
 from typing import TextIO
 
-from homeassistant.const import CONF_DEFAULT, CONF_PASSWORD, CONF_TYPE, CONF_USERNAME
+from homeassistant.const import ATTR_SERVICE, CONF_DEFAULT, CONF_PASSWORD, CONF_TYPE, CONF_USERNAME
+from itertools import chain
 from sys import stdout
 from time import sleep
 
@@ -23,14 +23,37 @@ from custom_components.lkcomu_interrao._schema import CONFIG_ENTRY_SCHEMA
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
+    ATTR_AGENT,
+    ATTR_AMOUNT,
+    ATTR_BENEFITS,
+    ATTR_CHARGED,
     ATTR_DESCRIPTION,
+    ATTR_END,
+    ATTR_GROUP,
+    ATTR_INITIAL,
+    ATTR_INSURANCE,
+    ATTR_INVOICE_ID,
+    ATTR_PAID,
+    ATTR_PAID_AT,
+    ATTR_PENALTY,
+    ATTR_PERIOD,
     ATTR_PREVIOUS,
+    ATTR_START,
+    ATTR_STATUS,
     ATTR_SUCCESS,
+    ATTR_SUM,
+    ATTR_TOTAL,
     CONF_LAST_PAYMENT,
     CONF_LOGOS,
     CONF_METERS,
 )
-from custom_components.lkcomu_interrao.sensor import EVENT_SET_DESCRIPTION, SERVICE_SET_DESCRIPTION
+from custom_components.lkcomu_interrao.sensor import (
+    SERVICE_CALCULATE_INDICATIONS,
+    SERVICE_GET_INVOICES,
+    SERVICE_GET_PAYMENTS,
+    SERVICE_PUSH_INDICATIONS,
+    SERVICE_SET_DESCRIPTION,
+)
 from inter_rao_energosbyt.enums import ProviderType, ServiceType
 from inter_rao_energosbyt.interfaces import (
     AbstractAccountWithInvoices,
@@ -215,18 +238,86 @@ def _get_gui_configuration() -> str:
     )
 
 
+_ONLY_SUPPORTED_OBJECTS_WARNING = "> Только для объектов, поддерживающих данный функционал"
+_HEADER_PARAMETERS = "##### Параметры"
+_HEADER_RESULTS = "##### Результат"
+
+
+def _simple_dated_request(service_id: str):
+    return (
+        f"{_ONLY_SUPPORTED_OBJECTS_WARNING}\n"
+        f"\n"
+        f"{_HEADER_PARAMETERS}\n"
+        f"\n"
+        f"- `{ATTR_START}: str | None` - _(опционально)_ Дата начала периода\n"
+        f"- `{ATTR_END}: str | None` - _(опционально)_ Дата начала периода\n"
+        f"\n"
+        f"{_HEADER_RESULTS}\n"
+        f"\n"
+        f"Событие с идентификатором `{DOMAIN}_{service_id}` и следующими значениями:\n"
+    )
+
+
+def _get_service_get_payments() -> str:
+    return (
+        f"#### `{SERVICE_GET_PAYMENTS}` &mdash; Получение платежей по периодам\n"
+        f"{_simple_dated_request(SERVICE_GET_PAYMENTS)}\n"
+        f"- `{ATTR_SUM}: float` - сумма всех платежей за указанный период\n"
+        f"- `{ATTR_AMOUNT}: float` - объём платежа\n"
+        f"- `{ATTR_PAID_AT}: str` - дата/время платежа\n"
+        f"- `{ATTR_PERIOD}: str` - период, за который платёж был выполнен\n"
+        f"- `{ATTR_STATUS}: str | None` - состояние платежа\n"
+        f"- `{ATTR_AGENT}: str | None` - банк-обработчик платежа\n"
+        f"- `{ATTR_GROUP}: str | None` - группа платежа (для лицевых счетов с несколькими типами платежей)\n"
+        f"\n"
+    )
+
+
+def _get_service_get_invoices() -> str:
+    return (
+        f"#### `{SERVICE_GET_INVOICES}` &mdash; Получение квитанций по периодам\n"
+        f"{_simple_dated_request(SERVICE_GET_INVOICES)}\n"
+        f"- `{ATTR_SUM}: float` - сумма всех квитанций за указанный период\n"
+        f"- `{ATTR_PERIOD}: str` - период квитанции\n"
+        f"- `{ATTR_INVOICE_ID}: str` - идентификатор квитанции\n"
+        f"- `{ATTR_TOTAL}: float` - сумма к оплате по квитанции\n"
+        f"- `{ATTR_PAID}: float | None` - сумма оплат, учтённых к квитанции\n"
+        f"- `{ATTR_INITIAL}: float | None` - задолженность/избыток на начало периода\n"
+        f"- `{ATTR_CHARGED}: float | None` - начислено за период\n"
+        f"- `{ATTR_INSURANCE}: float | None` - добровольное страхование\n"
+        f"- `{ATTR_BENEFITS}: float | None` - льготы\n"
+        f"- `{ATTR_PENALTY}: float | None` - штрафы\n"
+        f"- `{ATTR_SERVICE}: float | None` - тех. обслуживание\n"
+    )
+
+
+def _get_service_push_indications() -> str:
+    return (
+        f"#### `{SERVICE_PUSH_INDICATIONS}` &mdash; Передача показаний\n\n"
+        f"{_ONLY_SUPPORTED_OBJECTS_WARNING}\n\n"
+    )
+
+
+def _get_service_calculate_indications() -> str:
+    return (
+        f"#### `{SERVICE_CALCULATE_INDICATIONS}` &mdash; Подсчёт показаний\n\n"
+        f"{_ONLY_SUPPORTED_OBJECTS_WARNING}\n"
+    )
+
+
 def _get_service_set_description() -> str:
     return (
-        f"### `{SERVICE_SET_DESCRIPTION}` &mdash; Установить описание лицевого счёта\n"
-        f"> Только для объектов лицевых счетов\n"
+        f"#### `{SERVICE_SET_DESCRIPTION}` &mdash; Установить описание лицевого счёта\n"
         f"\n"
         f"Устанавливает описание для лицевого счёта и провоцирует его обновление.\n"
         f"\n"
-        f"#### Параметры\n"
+        f"{_HEADER_PARAMETERS}\n"
+        f"\n"
         f"- `{ATTR_DESCRIPTION}: str | None` - _(опционально)_ Новое описание для лицевого счёта\n"
         f"\n"
-        f"#### Результат\n"
-        f"Событие с идентификатором `{EVENT_SET_DESCRIPTION}` и следующими значениями:\n"
+        f"{_HEADER_RESULTS}\n"
+        f"\n"
+        f"Событие с идентификатором `{DOMAIN}_{SERVICE_SET_DESCRIPTION}` и следующими значениями:\n"
         f"- `{ATTR_SUCCESS}: bool` - Если установка описания была выполнена успешно\n"
         f"- `{ATTR_DESCRIPTION}: str | None` - Описание, с которым была вызвана служба\n"
         f"- `{ATTR_PREVIOUS}: str | None` - Описание, которым обладал (или, в случае ошибки, обладает) лицевой счёт\n"
@@ -356,6 +447,10 @@ def _get_yaml_configuration() -> str:
 
 def make_readme(file: TextIO, template: str):
     replacements = {
+        "service_push_indications": _get_service_push_indications(),
+        "service_calculate_indications": _get_service_calculate_indications(),
+        "service_get_payments": _get_service_get_payments(),
+        "service_get_invoices": _get_service_get_invoices(),
         "service_set_description": _get_service_set_description(),
         "gui_configuration": _get_gui_configuration(),
         "yaml_configuration": _get_yaml_configuration(),

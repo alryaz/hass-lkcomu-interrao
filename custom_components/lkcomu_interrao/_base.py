@@ -626,3 +626,17 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
     @abstractmethod
     def device_class(self) -> Optional[str]:
         raise NotImplementedError
+
+    def register_supported_services(self, for_object: Optional[Any] = None) -> None:
+        for type_feature, services in self._supported_services.items():
+            result, features = (
+                (True, None)
+                if type_feature is None
+                else (isinstance(for_object, type_feature[0]), (int(type_feature[1]),))
+            )
+
+            if result:
+                for service, schema in services.items():
+                    self.platform.async_register_entity_service(
+                        service, schema, "async_service_" + service, features
+                    )

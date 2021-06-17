@@ -37,7 +37,7 @@ from custom_components.lkcomu_interrao.const import (
     API_TYPE_DEFAULT,
     API_TYPE_NAMES,
     CONF_ACCOUNTS,
-    CONF_INVOICES,
+    CONF_LAST_INVOICE,
     CONF_METERS,
     CONF_NAME_FORMAT,
     CONF_USER_AGENT,
@@ -106,7 +106,6 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
                 from fake_useragent import UserAgent, FakeUserAgentError
 
             except ImportError:
-                print("COULD NOT IMPORT")
                 default_user_agent = DEFAULT_USER_AGENT
 
             else:
@@ -185,7 +184,7 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
 
 CONF_DISABLE_ACCOUNTS = "disable_" + CONF_ACCOUNTS
 CONF_DISABLE_METERS = "disable_" + CONF_METERS
-CONF_DISABLE_INVOICES = "disable_" + CONF_INVOICES
+CONF_DISABLE_INVOICES = "disable_" + CONF_LAST_INVOICE
 CONF_USE_TEXT_FIELDS = "use_text_fields"
 
 
@@ -218,7 +217,7 @@ class MosenergosbytOptionsFlow(OptionsFlow):
 
         return {
             CONF_ACCOUNTS: sorted(account_codes),
-            CONF_INVOICES: sorted(account_codes),
+            CONF_LAST_INVOICE: sorted(account_codes),
             CONF_METERS: sorted(meter_codes),
         }
 

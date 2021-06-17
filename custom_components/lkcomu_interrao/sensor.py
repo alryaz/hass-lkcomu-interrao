@@ -73,7 +73,8 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_TOTAL,
     ATTR_TOTAL_AREA,
     CONF_ACCOUNTS,
-    CONF_INVOICES,
+    CONF_DEV_PRESENTATION,
+    CONF_LAST_INVOICE,
     CONF_LOGOS,
     CONF_METERS,
     DATA_PROVIDER_LOGOS,
@@ -152,7 +153,7 @@ FEATURE_CALCULATE_INDICATIONS = 2
 _TLkcomuEntity = TypeVar("_TLkcomuEntity", bound=LkcomuEntity)
 
 
-class LkcomuAccountSensor(LkcomuEntity[Account]):
+class LkcomuAccount(LkcomuEntity[Account]):
     """The class for this sensor"""
 
     config_key = CONF_ACCOUNTS
@@ -202,8 +203,11 @@ class LkcomuAccountSensor(LkcomuEntity[Account]):
     def state(self) -> Union[str, float]:
         if self._account.is_locked:
             return STATE_PROBLEM
-        if self._balance is not None:
-            return self._balance.balance or 0.0  # fixes -0.0 issues
+        balance = self._balance
+        if balance is not None:
+            if self._account_config[CONF_DEV_PRESENTATION]:
+                return ("-" if (balance.balance or 0.0) < 0.0 else "") + "#####.###"
+            return round(balance.balance or 0.0, 2)  # fixes -0.0 issues
         return STATE_UNKNOWN
 
     @property
@@ -232,7 +236,6 @@ class LkcomuAccountSensor(LkcomuEntity[Account]):
         )
 
         attributes = {
-            ATTR_ACCOUNT_CODE: account.code,
             ATTR_ADDRESS: account.address,
             ATTR_DESCRIPTION: account.description,
             ATTR_PROVIDER_TYPE: provider_type,
@@ -258,6 +261,18 @@ class LkcomuAccountSensor(LkcomuEntity[Account]):
                         ATTR_TOTAL_AREA: info.total_area,
                     }
                 )
+
+        self._handle_dev_presentation(
+            attributes,
+            (),
+            (
+                ATTR_DESCRIPTION,
+                ATTR_FULL_NAME,
+                ATTR_ADDRESS,
+                ATTR_LIVING_AREA,
+                ATTR_TOTAL_AREA,
+            ),
+        )
 
         return attributes
 
@@ -344,7 +359,7 @@ class LkcomuAccountSensor(LkcomuEntity[Account]):
             _LOGGER.info(self.log_prefix + "End handling indications calculation")
 
 
-class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
+class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
     """The class for this sensor"""
 
     config_key: ClassVar[str] = CONF_METERS
@@ -465,7 +480,7 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
         # Installation date attribute
         install_date = met.installation_date
         if install_date:
-            attributes[ATTR_INSTALL_DATE] = met.installation_date.isoformat()
+            attributes[ATTR_INSTALL_DATE] = install_date.isoformat()
 
         # Submission periods attributes
         is_submittable = isinstance(met, AbstractSubmittableMeter)
@@ -499,6 +514,17 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
 
             for attribute, value in iterator:
                 attributes[f"zone_{zone_id}_{attribute}"] = value
+
+        self._handle_dev_presentation(
+            attributes,
+            (),
+            (
+                ATTR_METER_CODE,
+                ATTR_INSTALL_DATE,
+                ATTR_LAST_INDICATIONS_DATE,
+                *filter(lambda x: x.endswith("_indication"), attributes.keys()),
+            ),
+        )
 
         return attributes
 
@@ -703,8 +729,8 @@ class LkcomuMeterSensor(LkcomuEntity[AbstractAccountWithMeters]):
             _LOGGER.info(self.log_prefix + "End handling indications calculation")
 
 
-class LkcomuLastInvoiceSensor(LkcomuEntity[AbstractAccountWithInvoices]):
-    config_key = CONF_INVOICES
+class LkcomuLastInvoice(LkcomuEntity[AbstractAccountWithInvoices]):
+    config_key = CONF_LAST_INVOICE
 
     def __init__(self, *args, last_invoice: Optional["AbstractInvoice"] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -731,7 +757,11 @@ class LkcomuLastInvoiceSensor(LkcomuEntity[AbstractAccountWithInvoices]):
     @property
     def state(self) -> Union[float, str]:
         invoice = self._last_invoice
-        return round(invoice.total or 0.0, 2) if invoice else STATE_UNKNOWN
+        if invoice:
+            if self._account_config[CONF_DEV_PRESENTATION]:
+                return ("-" if (invoice.total or 0.0) < 0.0 else "") + "#####.###"
+            return round(invoice.total or 0.0, 2)
+        return STATE_UNKNOWN
 
     @property
     def icon(self) -> str:
@@ -746,7 +776,7 @@ class LkcomuLastInvoiceSensor(LkcomuEntity[AbstractAccountWithInvoices]):
         invoice = self._last_invoice
 
         if invoice:
-            return {
+            attributes = {
                 ATTR_PERIOD: invoice.period.isoformat(),
                 ATTR_INVOICE_ID: invoice.id,
                 ATTR_TOTAL: invoice.total,
@@ -758,6 +788,23 @@ class LkcomuLastInvoiceSensor(LkcomuEntity[AbstractAccountWithInvoices]):
                 ATTR_PENALTY: invoice.penalty,
                 ATTR_SERVICE: invoice.service,
             }
+
+            self._handle_dev_presentation(
+                attributes,
+                (ATTR_PERIOD, ATTR_INVOICE_ID),
+                (
+                    ATTR_TOTAL,
+                    ATTR_PAID,
+                    ATTR_INITIAL,
+                    ATTR_CHARGED,
+                    ATTR_INSURANCE,
+                    ATTR_BENEFITS,
+                    ATTR_PENALTY,
+                    ATTR_SERVICE,
+                ),
+            )
+
+            return attributes
 
         return {}
 
@@ -797,7 +844,7 @@ class LkcomuLastInvoiceSensor(LkcomuEntity[AbstractAccountWithInvoices]):
 
 
 async_setup_entry = make_common_async_setup_entry(
-    LkcomuAccountSensor,
-    LkcomuLastInvoiceSensor,
-    LkcomuMeterSensor,
+    LkcomuAccount,
+    LkcomuLastInvoice,
+    LkcomuMeter,
 )

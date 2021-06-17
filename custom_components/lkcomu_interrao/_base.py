@@ -9,6 +9,7 @@ __all__ = (
 
 import asyncio
 import logging
+import re
 from abc import abstractmethod
 from datetime import timedelta
 from typing import (
@@ -21,6 +22,7 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    MutableMapping,
     Optional,
     Set,
     TYPE_CHECKING,
@@ -31,7 +33,13 @@ from typing import (
 from urllib.parse import urlparse
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ATTRIBUTION, CONF_DEFAULT, CONF_SCAN_INTERVAL
+from homeassistant.const import (
+    ATTR_ATTRIBUTION,
+    CONF_DEFAULT,
+    CONF_SCAN_INTERVAL,
+    CONF_TYPE,
+    CONF_USERNAME,
+)
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
@@ -40,8 +48,8 @@ from homeassistant.util import as_local, utcnow
 
 from custom_components.lkcomu_interrao._util import (
     IS_IN_RUSSIA,
-    _make_log_prefix,
     async_get_icons_for_providers,
+    mask_username,
 )
 from custom_components.lkcomu_interrao.const import (
     ATTRIBUTION_EN,
@@ -59,6 +67,7 @@ from custom_components.lkcomu_interrao.const import (
     FORMAT_VAR_ACCOUNT_CODE,
     FORMAT_VAR_ACCOUNT_ID,
     FORMAT_VAR_CODE,
+    FORMAT_VAR_ID,
     FORMAT_VAR_PROVIDER_CODE,
     FORMAT_VAR_PROVIDER_NAME,
     SUPPORTED_PLATFORMS,
@@ -86,8 +95,19 @@ def make_common_async_setup_entry(entity_cls: Type["LkcomuEntity"], *args: Type[
         async_add_devices,
     ):
         current_entity_platform = entity_platform.current_platform.get()
-        log_prefix = _make_log_prefix(config_entry, current_entity_platform, "s")
-        _LOGGER.debug(log_prefix + "Begin entry setup")
+
+        log_prefix = (
+            f"[{config_entry.data[CONF_TYPE]}/{mask_username(config_entry.data[CONF_USERNAME])}]"
+            f"[{current_entity_platform.domain}][setup] "
+        )
+        _LOGGER.debug(
+            log_prefix
+            + (
+                "Регистрация делегата обновлений"
+                if IS_IN_RUSSIA
+                else "Registering update delegator"
+            )
+        )
 
         await async_register_update_delegator(
             hass,
@@ -97,8 +117,6 @@ def make_common_async_setup_entry(entity_cls: Type["LkcomuEntity"], *args: Type[
             entity_cls,
             *args,
         )
-
-        _LOGGER.debug(log_prefix + "End entry setup")
 
     _async_setup_entry.__name__ = "async_setup_entry"
 
@@ -138,6 +156,20 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
 
     update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS][entry_id]
 
+    log_prefix_base = (
+        f"[{config_entry.data[CONF_TYPE]}/{mask_username(config_entry.data[CONF_USERNAME])}]"
+    )
+    refresh_log_prefix = log_prefix_base + "[refresh] "
+
+    _LOGGER.info(
+        refresh_log_prefix
+        + (
+            "Запуск обновления связанных с профилем данных"
+            if IS_IN_RUSSIA
+            else "Beginning profile-related data update"
+        )
+    )
+
     if not update_delegators:
         return
 
@@ -147,7 +179,8 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
         )
     except BaseException as e:
         _LOGGER.warning(
-            entry_id
+            log_prefix_base
+            + "[logos] "
             + (
                 "Произошла ошибка при обновлении логотипов"
                 if IS_IN_RUSSIA
@@ -164,10 +197,21 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
                 hass.data[DATA_PROVIDER_LOGOS] = provider_icons
 
     entities: EntitiesDataType = hass.data[DATA_ENTITIES][entry_id]
-    final_config: ConfigType = hass.data[DATA_FINAL_CONFIG][entry_id]
+    final_config: ConfigType = dict(hass.data[DATA_FINAL_CONFIG][entry_id])
 
     dev_presentation = final_config.get(CONF_DEV_PRESENTATION)
     dev_classes_processed = set()
+    dev_log_prefix = log_prefix_base + "[dev] "
+
+    if dev_presentation:
+        from pprint import pformat
+
+        _LOGGER.debug(
+            dev_log_prefix
+            + ("Конечная конфигурация:" if IS_IN_RUSSIA else "Final configuration:")
+            + "\n"
+            + pformat(final_config)
+        )
 
     platform_tasks = {}
 
@@ -176,6 +220,7 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
 
     for account_id, account in accounts.items():
         account_config = accounts_config.get(account.code)
+        account_log_prefix_base = refresh_log_prefix + f"[{mask_username(account.code)}]"
 
         if account_config is None:
             account_config = account_default_config
@@ -184,17 +229,51 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
             continue
 
         for platform, (_, entity_classes) in update_delegators.items():
+            platform_log_prefix_base = account_log_prefix_base + f"[{platform}]"
             add_update_tasks = platform_tasks.setdefault(platform, [])
             for entity_cls in entity_classes:
+                cls_log_prefix_base = platform_log_prefix_base + f"[{entity_cls.__name__}]"
                 if account_config[entity_cls.config_key] is False:
+                    _LOGGER.debug(
+                        log_prefix_base
+                        + " "
+                        + (
+                            f"Лицевой счёт пропущен согласно фильтрации"
+                            if IS_IN_RUSSIA
+                            else f"Account skipped due to filtering"
+                        )
+                    )
                     continue
 
                 if dev_presentation:
-                    if (entity_cls, account.provider_type) in dev_classes_processed:
+                    dev_key = (entity_cls, account.provider_type)
+                    if dev_key in dev_classes_processed:
+                        _LOGGER.debug(
+                            cls_log_prefix_base
+                            + "[dev] "
+                            + (
+                                f"Пропущен лицевой счёт ({mask_username(account.code)}) "
+                                f"по уникальности типа"
+                                if IS_IN_RUSSIA
+                                else f"Account skipped ({mask_username(account.code)}) "
+                                f"due to type uniqueness"
+                            )
+                        )
                         continue
-                    dev_classes_processed.add((entity_cls, account.provider_type))
+
+                    dev_classes_processed.add(dev_key)
 
                 current_entities = entities.setdefault(entity_cls, {})
+
+                _LOGGER.debug(
+                    cls_log_prefix_base
+                    + "[update] "
+                    + (
+                        "Планирование процедуры обновления"
+                        if IS_IN_RUSSIA
+                        else "Planning update procedure"
+                    )
+                )
 
                 add_update_tasks.append(
                     entity_cls.async_refresh_accounts(
@@ -206,6 +285,17 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
                 )
 
     if platform_tasks:
+        all_updates_count = sum(map(len, platform_tasks.values()))
+        _LOGGER.info(
+            refresh_log_prefix
+            + (
+                f"Выполнение процедур обновления ({all_updates_count}) для платформ: "
+                f"{', '.join(platform_tasks.keys())}"
+                if IS_IN_RUSSIA
+                else f"Performing update procedures ({all_updates_count}) for platforms: "
+                f"{', '.join(platform_tasks.keys())}"
+            )
+        )
         for platform, tasks in zip(
             platform_tasks.keys(),
             await asyncio.gather(
@@ -223,6 +313,15 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
 
             if all_new_entities:
                 update_delegators[platform][0](all_new_entities, True)
+    else:
+        _LOGGER.warning(
+            refresh_log_prefix
+            + (
+                "Отсутствуют подходящие платформы для конфигурации"
+                if IS_IN_RUSSIA
+                else "Missing suitable platforms for configuration"
+            )
+        )
 
 
 class NameFormatDict(dict):
@@ -251,6 +350,39 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
         self._account: _TAccount = account
         self._account_config: ConfigType = account_config
         self._entity_updater = None
+
+    def _handle_dev_presentation(
+        self,
+        mapping: MutableMapping[str, Any],
+        filter_vars: Iterable[str],
+        blackout_vars: Optional[Iterable[str]] = None,
+    ) -> None:
+        if self._account_config[CONF_DEV_PRESENTATION]:
+            filter_vars = set(filter_vars)
+            if blackout_vars is not None:
+                blackout_vars = set(blackout_vars)
+                filter_vars.difference_update(blackout_vars)
+
+                for attr in blackout_vars:
+                    value = mapping.get(attr)
+                    if value is not None:
+                        if isinstance(value, float):
+                            value = "#####.###"
+                        elif isinstance(value, int):
+                            value = "#####"
+                        elif isinstance(value, str):
+                            value = "XXXXX"
+                        else:
+                            value = "*****"
+                        mapping[attr] = value
+
+            for attr in filter_vars:
+                value = mapping.get(attr)
+                if value is not None:
+                    value = re.sub(r"[A-Za-z]", "X", str(value))
+                    value = re.sub(r"[0-9]", "#", value)
+                    value = re.sub(r"\w+", "*", value)
+                    mapping[attr] = value
 
     #################################################################################
     # Config getter helpers
@@ -286,25 +418,32 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
     @property
     def device_state_attributes(self):
         """Return the attribute(s) of the sensor"""
-        attribution = (ATTRIBUTION_RU if IS_IN_RUSSIA else ATTRIBUTION_EN) % urlparse(
-            self._account.api.BASE_URL
-        ).netloc
 
-        return {
-            ATTR_ATTRIBUTION: attribution,
+        attributes = {
+            ATTR_ATTRIBUTION: (ATTRIBUTION_RU if IS_IN_RUSSIA else ATTRIBUTION_EN)
+            % urlparse(self._account.api.BASE_URL).netloc,
             **(self.sensor_related_attributes or {}),
-            ATTR_ACCOUNT_ID: self._account.id,
-            ATTR_ACCOUNT_CODE: self._account.code,
         }
+
+        if ATTR_ACCOUNT_ID not in attributes:
+            attributes[ATTR_ACCOUNT_ID] = self._account.id
+
+        if ATTR_ACCOUNT_CODE not in attributes:
+            attributes[ATTR_ACCOUNT_CODE] = self._account.code
+
+        self._handle_dev_presentation(
+            attributes,
+            (ATTR_ACCOUNT_CODE, ATTR_ACCOUNT_ID),
+        )
+
+        return attributes
 
     @property
     def name(self) -> Optional[str]:
-        name_format_values = NameFormatDict(
-            {
-                key: ("" if value is None else value)
-                for key, value in self.name_format_values.items()
-            }
-        )
+        name_format_values = {
+            key: ("" if value is None else str(value))
+            for key, value in self.name_format_values.items()
+        }
 
         if FORMAT_VAR_CODE not in name_format_values:
             name_format_values[FORMAT_VAR_CODE] = self.code
@@ -321,7 +460,13 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
         if FORMAT_VAR_PROVIDER_NAME not in name_format_values:
             name_format_values[FORMAT_VAR_PROVIDER_NAME] = self._account.provider_name
 
-        return self.name_format.format_map(name_format_values)
+        self._handle_dev_presentation(
+            name_format_values,
+            (FORMAT_VAR_CODE, FORMAT_VAR_ACCOUNT_CODE),
+            (FORMAT_VAR_ACCOUNT_ID, FORMAT_VAR_ID),
+        )
+
+        return self.name_format.format_map(NameFormatDict(name_format_values))
 
     #################################################################################
     # Hooks for adding entity to internal registry
@@ -329,7 +474,6 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
 
     async def async_added_to_hass(self) -> None:
         _LOGGER.info(self.log_prefix + "Adding to HomeAssistant")
-
         self.updater_restart()
 
     async def async_will_remove_from_hass(self) -> None:

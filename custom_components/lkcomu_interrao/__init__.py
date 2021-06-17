@@ -13,7 +13,7 @@ __all__ = (
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Mapping, Optional, Set, TYPE_CHECKING, Tuple
+from typing import Any, Dict, List, Mapping, Optional, TYPE_CHECKING, Tuple
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -28,24 +28,24 @@ from custom_components.lkcomu_interrao._base import UpdateDelegatorsDataType
 from custom_components.lkcomu_interrao._schema import CONFIG_ENTRY_SCHEMA
 from custom_components.lkcomu_interrao._util import (
     IS_IN_RUSSIA,
-    async_get_icons_for_providers,
     _find_existing_entry,
     _make_log_prefix,
-    async_update_provider_icons,
+    async_get_icons_for_providers,
     import_api_cls,
+    mask_username,
 )
 from custom_components.lkcomu_interrao.const import (
-    DATA_PROVIDER_LOGOS,
     API_TYPE_DEFAULT,
     API_TYPE_NAMES,
     CONF_ACCOUNTS,
-    CONF_INVOICES,
+    CONF_LAST_INVOICE,
     CONF_METERS,
     CONF_NAME_FORMAT,
     CONF_USER_AGENT,
     DATA_API_OBJECTS,
     DATA_ENTITIES,
     DATA_FINAL_CONFIG,
+    DATA_PROVIDER_LOGOS,
     DATA_PROVIDER_LOGOS,
     DATA_UPDATE_DELEGATORS,
     DATA_UPDATE_LISTENERS,
@@ -56,11 +56,10 @@ from custom_components.lkcomu_interrao.const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
-from inter_rao_energosbyt.enums import ProviderType
 
 if TYPE_CHECKING:
-    from inter_rao_energosbyt.interfaces import Account, AccountID
-    from custom_components.lkcomu_interrao.sensor import LkcomuAccountSensor
+    from inter_rao_energosbyt.interfaces import Account, AccountID, BaseEnergosbytAPI
+    from custom_components.lkcomu_interrao.sensor import LkcomuAccount
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -120,28 +119,51 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
         username: str = user_cfg[CONF_USERNAME]
 
         key = (type_, username)
-        log_prefix = f"[{type_}/{username}]"
+        log_prefix = f"[{type_}/{mask_username(username)}] "
 
-        _LOGGER.debug(f"{log_prefix} YAML configuration encountered")
+        _LOGGER.debug(
+            log_prefix
+            + (
+                "Получена конфигурация из YAML"
+                if IS_IN_RUSSIA
+                else "YAML configuration encountered"
+            )
+        )
 
         existing_entry = _find_existing_entry(hass, type_, username)
         if existing_entry:
             if existing_entry.source == config_entries.SOURCE_IMPORT:
                 yaml_config[key] = user_cfg
-                _LOGGER.debug(f"{log_prefix} Skipping existing import binding")
+                _LOGGER.debug(
+                    log_prefix
+                    + (
+                        "Соответствующая конфигурационная запись существует"
+                        if IS_IN_RUSSIA
+                        else "Matching config entry exists"
+                    )
+                )
             else:
-                _LOGGER.warning(f"{log_prefix} YAML config is overridden by another entry!")
-            continue
-
-        if key in yaml_config:
-            _LOGGER.warning(
-                f'{log_prefix} User "%s" set up multiple times. Check your configuration.'
-                % username
-            )
+                _LOGGER.warning(
+                    log_prefix
+                    + (
+                        "Конфигурация из YAML переопределена другой конфигурацией!"
+                        if IS_IN_RUSSIA
+                        else "YAML config is overridden by another entry!"
+                    )
+                )
             continue
 
         # Save YAML configuration
         yaml_config[key] = user_cfg
+
+        _LOGGER.warning(
+            log_prefix
+            + (
+                "Создание новой конфигурационной записи"
+                if IS_IN_RUSSIA
+                else "Creating new config entry"
+            )
+        )
 
         hass.async_create_task(
             hass.config_entries.flow.async_init(
@@ -154,12 +176,10 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
             )
         )
 
-    if yaml_config:
+    if not yaml_config:
         _LOGGER.debug(
-            'YAML entries: "' + '", "'.join(map(lambda x: "->".join(x), yaml_config.keys())) + '"',
+            "Конфигурация из YAML не обнаружена" if IS_IN_RUSSIA else "YAML configuration not found"
         )
-    else:
-        _LOGGER.debug("No configuration added from YAML")
 
     return True
 
@@ -169,12 +189,13 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
     username = config_entry.data[CONF_USERNAME]
     unique_key = (type_, username)
     entry_id = config_entry.entry_id
-    log_prefix = f"[{type_}/{username}] "
+    log_prefix = f"[{type_}/{mask_username(username)}] "
+    hass_data = hass.data
 
     # Source full configuration
     if config_entry.source == config_entries.SOURCE_IMPORT:
         # Source configuration from YAML
-        yaml_config = hass.data.get(DATA_YAML_CONFIG)
+        yaml_config = hass_data.get(DATA_YAML_CONFIG)
 
         if not yaml_config or unique_key not in yaml_config:
             _LOGGER.info(
@@ -277,9 +298,28 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: config_entrie
         )
     )
 
+    profile_id = api_object.auth_session.id_profile
+
+    api_objects: Dict[str, "BaseEnergosbytAPI"] = hass_data.setdefault(DATA_API_OBJECTS, {})
+    for existing_config_entry_id, existing_api_object in api_objects.items():
+        if existing_api_object.auth_session.id_profile == profile_id:
+            _LOGGER.warning(
+                log_prefix
+                + (
+                    f"Одинаковые профили получены несколькими конфигурациями "
+                    f"(имя пользователя другой записи: {existing_api_object.username}, "
+                    f"идентификатор {existing_config_entry_id})"
+                    if IS_IN_RUSSIA
+                    else f"Same profiles retrieved by multiple configurations "
+                    f"(foreign username: {existing_api_object.username}, "
+                    f"ID: {existing_config_entry_id})"
+                )
+            )
+            await hass.config_entries.async_set_disabled_by(config_entry.entry_id, DOMAIN)
+            return False
+
     # Create placeholders
-    hass_data = hass.data
-    hass_data.setdefault(DATA_API_OBJECTS, {})[entry_id] = api_object
+    api_objects[entry_id] = api_object
     hass_data.setdefault(DATA_ENTITIES, {})[entry_id] = {}
     hass_data.setdefault(DATA_FINAL_CONFIG, {})[entry_id] = user_cfg
     hass.data.setdefault(DATA_UPDATE_DELEGATORS, {})[entry_id] = {}

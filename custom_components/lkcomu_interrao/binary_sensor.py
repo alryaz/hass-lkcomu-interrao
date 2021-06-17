@@ -17,7 +17,8 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_PAID_AT,
     ATTR_PERIOD,
     ATTR_STATUS,
-    CONF_PAYMENTS,
+    CONF_DEV_PRESENTATION,
+    CONF_LAST_PAYMENT,
     DOMAIN,
     FORMAT_VAR_ID,
     FORMAT_VAR_TYPE_EN,
@@ -28,8 +29,8 @@ from inter_rao_energosbyt.interfaces import AbstractAccountWithPayments, Abstrac
 _TLkcomuEntity = TypeVar("_TLkcomuEntity", bound=LkcomuEntity)
 
 
-class LkcomuLastPaymentSensor(LkcomuEntity[AbstractAccountWithPayments], BinarySensorEntity):
-    config_key: ClassVar[str] = CONF_PAYMENTS
+class LkcomuLastPayment(LkcomuEntity[AbstractAccountWithPayments], BinarySensorEntity):
+    config_key: ClassVar[str] = CONF_LAST_PAYMENT
 
     def __init__(self, *args, last_payment: Optional[AbstractPayment] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -110,6 +111,7 @@ class LkcomuLastPaymentSensor(LkcomuEntity[AbstractAccountWithPayments], BinaryS
         if payment is None:
             attributes = {}
         else:
+
             attributes = {
                 ATTR_AMOUNT: payment.amount,
                 ATTR_PAID_AT: payment.paid_at.isoformat(),
@@ -118,6 +120,10 @@ class LkcomuLastPaymentSensor(LkcomuEntity[AbstractAccountWithPayments], BinaryS
                 ATTR_PERIOD: payment.period.isoformat(),
                 ATTR_GROUP: payment.group_id,
             }
+
+            self._handle_dev_presentation(
+                attributes, (ATTR_PAID_AT, ATTR_PERIOD), (ATTR_AMOUNT, ATTR_AGENT, ATTR_GROUP)
+            )
 
         return attributes
 
@@ -141,4 +147,4 @@ class LkcomuLastPaymentSensor(LkcomuEntity[AbstractAccountWithPayments], BinaryS
         return DOMAIN + "_payment"
 
 
-async_setup_entry = make_common_async_setup_entry(LkcomuLastPaymentSensor)
+async_setup_entry = make_common_async_setup_entry(LkcomuLastPayment)

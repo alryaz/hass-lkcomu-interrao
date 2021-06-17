@@ -106,3 +106,45 @@ set_description:
       selector:
         text:
           multiline: false
+
+get_payments:
+  description: "Получить перечень платежей, связанных с лицевым счётом, которые находятся внутри заданного периода"
+  target:
+    entity:
+      device_class: lkcomu_interrao_account
+  fields:
+    start:
+      description: "Дата начала периода"
+      required: false
+      advanced: false
+      selector:
+        text:
+          multiline: false
+    end:
+      description: "Дата окончания периода"
+      required: false
+      advanced: false
+      selector:
+        text:
+          multiline: false
+
+get_invoices:
+  description: "Получить перечень квитанций, связанных с лицевым счётом, которые находятся внутри заданного периода"
+  target:
+    entity:
+      device_class: lkcomu_interrao_account
+  fields:
+    start:
+      description: "Дата начала периода"
+      required: false
+      advanced: false
+      selector:
+        text:
+          multiline: false
+    end:
+      description: "Дата окончания периода"
+      required: false
+      advanced: false
+      selector:
+        text:
+          multiline: false

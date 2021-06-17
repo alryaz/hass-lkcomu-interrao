@@ -293,7 +293,7 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
                 return await update_task
             except BaseException as task_exception:
                 _LOGGER.exception(
-                    f"Error occurred during task execution: {repr(results)}",
+                    f"Error occurred during task execution: {repr(task_exception)}",
                     exc_info=task_exception,
                 )
                 return None

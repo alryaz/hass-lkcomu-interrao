@@ -4,12 +4,13 @@ Retrieves indications regarding current state of accounts.
 """
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 from enum import IntEnum
 from typing import (
     Any,
     ClassVar,
     Dict,
+    Final,
     Hashable,
     Mapping,
     Optional,
@@ -33,17 +34,25 @@ from homeassistant.const import (
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import slugify
 
-from custom_components.lkcomu_interrao._base import LkcomuEntity, make_common_async_setup_entry
+from custom_components.lkcomu_interrao._base import (
+    LkcomuEntity,
+    SupportedServicesType,
+    make_common_async_setup_entry,
+)
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
     ATTR_ADDRESS,
+    ATTR_AGENT,
+    ATTR_AMOUNT,
     ATTR_BENEFITS,
     ATTR_CALL_PARAMS,
     ATTR_CHARGED,
     ATTR_COMMENT,
     ATTR_DESCRIPTION,
+    ATTR_END,
     ATTR_FULL_NAME,
+    ATTR_GROUP,
     ATTR_IGNORE_INDICATIONS,
     ATTR_IGNORE_PERIOD,
     ATTR_INCREMENTAL,
@@ -60,19 +69,23 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_MODEL,
     ATTR_NOTIFICATION,
     ATTR_PAID,
+    ATTR_PAID_AT,
     ATTR_PENALTY,
     ATTR_PERIOD,
     ATTR_PREVIOUS,
     ATTR_PROVIDER_NAME,
     ATTR_PROVIDER_TYPE,
     ATTR_REASON,
+    ATTR_RESULT,
     ATTR_SERVICE_NAME,
     ATTR_SERVICE_TYPE,
+    ATTR_START,
     ATTR_STATUS,
     ATTR_SUBMIT_PERIOD_ACTIVE,
     ATTR_SUBMIT_PERIOD_END,
     ATTR_SUBMIT_PERIOD_START,
     ATTR_SUCCESS,
+    ATTR_SUM,
     ATTR_TOTAL,
     ATTR_TOTAL_AREA,
     CONF_ACCOUNTS,
@@ -91,6 +104,7 @@ from inter_rao_energosbyt.interfaces import (
     AbstractAccountWithBalance,
     AbstractAccountWithInvoices,
     AbstractAccountWithMeters,
+    AbstractAccountWithPayments,
     AbstractBalance,
     AbstractCalculatableMeter,
     AbstractInvoice,
@@ -99,6 +113,7 @@ from inter_rao_energosbyt.interfaces import (
     Account,
 )
 from inter_rao_energosbyt.presets.byt import AccountWithBytInfo, BytInfoSingle
+from inter_rao_energosbyt.util import process_start_end_arguments
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,31 +150,75 @@ CALCULATE_PUSH_INDICATIONS_SCHEMA = {
     ),
 }
 
-SERVICE_PUSH_INDICATIONS = "push_indications"
-SERVICE_PUSH_INDICATIONS_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
+SERVICE_PUSH_INDICATIONS: Final = "push_indications"
+SERVICE_PUSH_INDICATIONS_SCHEMA: Final = CALCULATE_PUSH_INDICATIONS_SCHEMA
+EVENT_PUSH_INDICATIONS: Final = DOMAIN + "_push_indications"
 
-SERVICE_CALCULATE_INDICATIONS = "calculate_indications"
-SERVICE_CALCULATE_INDICATIONS_SCHEMA = CALCULATE_PUSH_INDICATIONS_SCHEMA
+SERVICE_CALCULATE_INDICATIONS: Final = "calculate_indications"
+SERVICE_CALCULATE_INDICATIONS_SCHEMA: Final = CALCULATE_PUSH_INDICATIONS_SCHEMA
+EVENT_CALCULATE_INDICATIONS: Final = DOMAIN + "_calculate_indications"
 
-EVENT_CALCULATION_RESULT = DOMAIN + "_calculation_result"
-EVENT_PUSH_RESULT = DOMAIN + "_push_result"
-
-SERVICE_SET_DESCRIPTION = "set_description"
-SERVICE_SET_DESCRIPTION_SCHEMA = {
-    vol.Optional(CONF_DESCRIPTION): vol.Any(vol.Equal(None), cv.string),
+_SERVICE_SCHEMA_BASE_DATED: Final = {
+    vol.Optional(ATTR_START, default=None): vol.Any(vol.Equal(None), cv.datetime),
+    vol.Optional(ATTR_END, default=None): vol.Any(vol.Equal(None), cv.datetime),
 }
-EVENT_SET_DESCRIPTION = DOMAIN + "_set_description"
 
-FEATURE_PUSH_INDICATIONS = 1
-FEATURE_CALCULATE_INDICATIONS = 2
+FEATURE_PUSH_INDICATIONS: Final = 1
+FEATURE_CALCULATE_INDICATIONS: Final = FEATURE_PUSH_INDICATIONS * 2
+FEATURE_GET_PAYMENTS: Final = FEATURE_CALCULATE_INDICATIONS * 2
+FEATURE_GET_INVOICES: Final = FEATURE_GET_PAYMENTS * 2
+
+EVENT_SET_DESCRIPTION: Final = DOMAIN + "_set_description"
+EVENT_GET_PAYMENTS: Final = DOMAIN + "_get_payments"
+EVENT_GET_INVOICES: Final = DOMAIN + "_get_invoices"
 
 _TLkcomuEntity = TypeVar("_TLkcomuEntity", bound=LkcomuEntity)
+
+
+def get_supported_features(from_services: SupportedServicesType, for_object: Any) -> int:
+    features = 0
+    for type_feature, services in from_services.items():
+        if type_feature is None:
+            continue
+        check_cls, feature = type_feature
+        if isinstance(for_object, check_cls):
+            features |= feature
+
+    return features
 
 
 class LkcomuAccount(LkcomuEntity[Account]):
     """The class for this sensor"""
 
-    config_key = CONF_ACCOUNTS
+    config_key: ClassVar[str] = CONF_ACCOUNTS
+
+    _supported_services: ClassVar[SupportedServicesType] = {
+        None: {
+            "set_description": {
+                vol.Optional(CONF_DESCRIPTION): vol.Any(vol.Equal(None), cv.string),
+            },
+        },
+        (AbstractAccountWithInvoices, FEATURE_GET_INVOICES): {
+            "get_invoices": _SERVICE_SCHEMA_BASE_DATED,
+        },
+        (AbstractAccountWithPayments, FEATURE_GET_PAYMENTS): {
+            "get_payments": _SERVICE_SCHEMA_BASE_DATED,
+        },
+    }
+
+    def register_supported_services(self, for_object: Optional[Any] = None) -> None:
+        for type_feature, services in self._supported_services.items():
+            result, features = (
+                (True, None)
+                if type_feature is None
+                else (isinstance(for_object, type_feature[0]), (int(type_feature[1]),))
+            )
+
+            if result:
+                for service, schema in services.items():
+                    self.platform.async_register_entity_service(
+                        service, schema, "async_service_" + service, features
+                    )
 
     def __init__(self, *args, balance: Optional[AbstractBalance] = None, **kwargs) -> None:
         super().__init__(*args, *kwargs)
@@ -310,6 +369,10 @@ class LkcomuAccount(LkcomuEntity[Account]):
             FORMAT_VAR_TYPE_RU: "лицевой счёт",
         }
 
+    #################################################################################
+    # Functional implementation of inherent class
+    #################################################################################
+
     @classmethod
     async def async_refresh_accounts(
         cls,
@@ -333,18 +396,141 @@ class LkcomuAccount(LkcomuEntity[Account]):
     async def async_update_internal(self) -> None:
         await self._account.async_update_related()
         account = self._account
+
         if isinstance(account, AbstractAccountWithBalance):
             self._balance = await account.async_get_balance()
+
         if isinstance(account, AccountWithBytInfo):
             await account.async_update_info()
 
-        self.platform.async_register_entity_service(
-            SERVICE_SET_DESCRIPTION,
-            SERVICE_SET_DESCRIPTION_SCHEMA,
-            "async_set_description",
+        self.register_supported_services(account)
+
+    #################################################################################
+    # Services callbacks
+    #################################################################################
+
+    @property
+    def supported_features(self) -> int:
+        return get_supported_features(
+            self._supported_services,
+            self._account,
         )
 
-    async def async_set_description(self, **call_data):
+    async def async_service_get_payments(self, **call_data):
+        account = self._account
+
+        _LOGGER.info(self.log_prefix + "Begin handling payments retrieval")
+
+        if not isinstance(account, AbstractAccountWithPayments):
+            raise ValueError("account does not support payments retrieval")
+
+        dt_start: Optional["datetime"] = call_data[ATTR_START]
+        dt_end: Optional["datetime"] = call_data[ATTR_END]
+
+        dt_start, dt_end = process_start_end_arguments(dt_start, dt_end)
+        results = []
+
+        event_data = {
+            ATTR_ACCOUNT_CODE: account.code,
+            ATTR_ACCOUNT_ID: account.id,
+            ATTR_SUCCESS: False,
+            ATTR_START: dt_start.isoformat(),
+            ATTR_END: dt_end.isoformat(),
+            ATTR_RESULT: results,
+            ATTR_COMMENT: None,
+            ATTR_SUM: 0.0,
+        }
+
+        try:
+            payments = await account.async_get_payments(dt_start, dt_end)
+
+            for payment in payments:
+                event_data[ATTR_SUM] += payment.amount
+                results.append(
+                    {
+                        ATTR_AMOUNT: payment.amount,
+                        ATTR_PAID_AT: payment.paid_at.isoformat(),
+                        ATTR_STATUS: payment.status,
+                        ATTR_AGENT: payment.agent,
+                        ATTR_PERIOD: payment.period.isoformat(),
+                        ATTR_GROUP: payment.group_id,
+                    }
+                )
+
+        except BaseException as e:
+            event_data[ATTR_COMMENT] = "Unknown error: %r" % e
+            _LOGGER.exception(event_data[ATTR_COMMENT])
+            raise
+        else:
+            event_data[ATTR_SUCCESS] = True
+
+        finally:
+            self.hass.bus.async_fire(
+                event_type=EVENT_GET_PAYMENTS,
+                event_data=event_data,
+            )
+
+            _LOGGER.info(self.log_prefix + "Finish handling payments retrieval")
+
+    async def async_service_get_invoices(self, **call_data):
+        account = self._account
+
+        _LOGGER.info(self.log_prefix + "Begin handling invoices retrieval")
+
+        if not isinstance(account, AbstractAccountWithInvoices):
+            raise ValueError("account does not support invoices retrieval")
+
+        dt_start: Optional["datetime"] = call_data[ATTR_START]
+        dt_end: Optional["datetime"] = call_data[ATTR_END]
+
+        dt_start, dt_end = process_start_end_arguments(dt_start, dt_end)
+        results = []
+
+        event_data = {
+            ATTR_ACCOUNT_CODE: account.code,
+            ATTR_ACCOUNT_ID: account.id,
+            ATTR_SUCCESS: False,
+            ATTR_START: dt_start.isoformat(),
+            ATTR_END: dt_end.isoformat(),
+            ATTR_RESULT: results,
+            ATTR_COMMENT: None,
+        }
+
+        try:
+            invoices = await account.async_get_invoices(dt_start, dt_end)
+
+            for invoice in invoices:
+                results.append(
+                    {
+                        ATTR_PERIOD: invoice.period.isoformat(),
+                        ATTR_INVOICE_ID: invoice.id,
+                        ATTR_TOTAL: invoice.total,
+                        ATTR_PAID: invoice.paid,
+                        ATTR_INITIAL: invoice.initial,
+                        ATTR_CHARGED: invoice.charged,
+                        ATTR_INSURANCE: invoice.insurance,
+                        ATTR_BENEFITS: invoice.benefits,
+                        ATTR_PENALTY: invoice.penalty,
+                        ATTR_SERVICE: invoice.service,
+                    }
+                )
+
+        except BaseException as e:
+            event_data[ATTR_COMMENT] = "Unknown error: %r" % e
+            _LOGGER.exception(event_data[ATTR_COMMENT])
+            raise
+        else:
+            event_data[ATTR_SUCCESS] = True
+
+        finally:
+            self.hass.bus.async_fire(
+                event_type=EVENT_GET_INVOICES,
+                event_data=event_data,
+            )
+
+            _LOGGER.info(self.log_prefix + "Finish handling invoices retrieval")
+
+    async def async_service_set_description(self, **call_data):
         account = self._account
 
         _LOGGER.info(self.log_prefix + "Begin handling description setting")
@@ -486,9 +672,10 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
 
     @property
     def supported_features(self) -> int:
+        meter = self._meter
         return (
-            isinstance(self._meter, AbstractSubmittableMeter) * FEATURE_PUSH_INDICATIONS
-            | isinstance(self._meter, AbstractCalculatableMeter) * FEATURE_CALCULATE_INDICATIONS
+            isinstance(meter, AbstractSubmittableMeter) * FEATURE_PUSH_INDICATIONS
+            | isinstance(meter, AbstractCalculatableMeter) * FEATURE_CALCULATE_INDICATIONS
         )
 
     @property
@@ -697,7 +884,7 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
                 self._fire_callback_event(
                     call_data,
                     event_data,
-                    EVENT_PUSH_RESULT,
+                    EVENT_PUSH_INDICATIONS,
                     "Передача показаний",
                 )
 
@@ -749,7 +936,7 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
             self._fire_callback_event(
                 call_data,
                 event_data,
-                EVENT_CALCULATION_RESULT,
+                EVENT_CALCULATE_INDICATIONS,
                 "Подсчёт показаний",
             )
 

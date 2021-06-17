@@ -5,6 +5,7 @@ __all__ = (
     "async_register_update_delegator",
     "UpdateDelegatorsDataType",
     "EntitiesDataType",
+    "SupportedServicesType",
 )
 
 import asyncio
@@ -25,10 +26,12 @@ from typing import (
     MutableMapping,
     Optional,
     Set,
+    SupportsInt,
     TYPE_CHECKING,
     Tuple,
     Type,
     TypeVar,
+    Union,
 )
 from urllib.parse import urlparse
 
@@ -352,8 +355,16 @@ _TData = TypeVar("_TData")
 _TAccount = TypeVar("_TAccount", bound="Account")
 
 
+SupportedServicesType = Mapping[
+    Optional[Tuple[type, SupportsInt]],
+    Mapping[str, Union[dict, Callable[[dict], dict]]],
+]
+
+
 class LkcomuEntity(Entity, Generic[_TAccount]):
     config_key: ClassVar[str] = NotImplemented
+
+    _supported_services: ClassVar[SupportedServicesType] = {}
 
     def __init__(
         self,

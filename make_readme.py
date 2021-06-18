@@ -239,14 +239,22 @@ def _get_gui_configuration() -> str:
 
 
 _ONLY_SUPPORTED_OBJECTS_WARNING = "> Только для объектов, поддерживающих данный функционал"
-_HEADER_PARAMETERS = "##### Параметры"
-_HEADER_RESULTS = "##### Результат"
+_HEADER_PARAMETERS = "###### Параметры"
+_HEADER_RESULTS = "###### Результат"
 
 
-def _simple_dated_request(service_id: str):
+def _service_header(service_id: str, title: str, is_supported_only: bool = False):
+    result = f"##### `{service_id}` &mdash; {title}\n\n"
+
+    if is_supported_only:
+        result += f"{_ONLY_SUPPORTED_OBJECTS_WARNING}\n\n"
+
+    return result
+
+
+def _simple_dated_request(service_id: str, title: str):
     return (
-        f"{_ONLY_SUPPORTED_OBJECTS_WARNING}\n"
-        f"\n"
+        _service_header(service_id, title, True) + f"\n"
         f"{_HEADER_PARAMETERS}\n"
         f"\n"
         f"- `{ATTR_START}: str | None` - _(опционально)_ Дата начала периода\n"
@@ -260,8 +268,7 @@ def _simple_dated_request(service_id: str):
 
 def _get_service_get_payments() -> str:
     return (
-        f"#### `{SERVICE_GET_PAYMENTS}` &mdash; Получение платежей по периодам\n"
-        f"{_simple_dated_request(SERVICE_GET_PAYMENTS)}\n"
+        f"{_simple_dated_request(SERVICE_GET_PAYMENTS, 'Получение платежей по периодам')}\n"
         f"- `{ATTR_SUM}: float` - сумма всех платежей за указанный период\n"
         f"- `{ATTR_AMOUNT}: float` - объём платежа\n"
         f"- `{ATTR_PAID_AT}: str` - дата/время платежа\n"
@@ -275,8 +282,7 @@ def _get_service_get_payments() -> str:
 
 def _get_service_get_invoices() -> str:
     return (
-        f"#### `{SERVICE_GET_INVOICES}` &mdash; Получение квитанций по периодам\n"
-        f"{_simple_dated_request(SERVICE_GET_INVOICES)}\n"
+        f"{_simple_dated_request(SERVICE_GET_INVOICES, 'Получение квитанций по периодам')}\n"
         f"- `{ATTR_SUM}: float` - сумма всех квитанций за указанный период\n"
         f"- `{ATTR_PERIOD}: str` - период квитанции\n"
         f"- `{ATTR_INVOICE_ID}: str` - идентификатор квитанции\n"
@@ -292,24 +298,17 @@ def _get_service_get_invoices() -> str:
 
 
 def _get_service_push_indications() -> str:
-    return (
-        f"#### `{SERVICE_PUSH_INDICATIONS}` &mdash; Передача показаний\n\n"
-        f"{_ONLY_SUPPORTED_OBJECTS_WARNING}\n\n"
-    )
+    return _service_header(SERVICE_PUSH_INDICATIONS, "Передача показаний", True)
 
 
 def _get_service_calculate_indications() -> str:
-    return (
-        f"#### `{SERVICE_CALCULATE_INDICATIONS}` &mdash; Подсчёт показаний\n\n"
-        f"{_ONLY_SUPPORTED_OBJECTS_WARNING}\n"
-    )
+    return _service_header(SERVICE_CALCULATE_INDICATIONS, "Подсчёт показаний", True)
 
 
 def _get_service_set_description() -> str:
     return (
-        f"#### `{SERVICE_SET_DESCRIPTION}` &mdash; Установить описание лицевого счёта\n"
-        f"\n"
-        f"Устанавливает описание для лицевого счёта и провоцирует его обновление.\n"
+        _service_header(SERVICE_SET_DESCRIPTION, "Установить описание лицевого счёта")
+        + f"Устанавливает описание для лицевого счёта и провоцирует его обновление.\n"
         f"\n"
         f"{_HEADER_PARAMETERS}\n"
         f"\n"

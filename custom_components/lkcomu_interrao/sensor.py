@@ -39,12 +39,11 @@ from custom_components.lkcomu_interrao._base import (
     SupportedServicesType,
     make_common_async_setup_entry,
 )
+from custom_components.lkcomu_interrao._encoders import invoice_to_attrs, payment_to_attrs
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
     ATTR_ADDRESS,
-    ATTR_AGENT,
-    ATTR_AMOUNT,
     ATTR_BENEFITS,
     ATTR_CALL_PARAMS,
     ATTR_CHARGED,
@@ -52,7 +51,6 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_DESCRIPTION,
     ATTR_END,
     ATTR_FULL_NAME,
-    ATTR_GROUP,
     ATTR_IGNORE_INDICATIONS,
     ATTR_IGNORE_PERIOD,
     ATTR_INCREMENTAL,
@@ -69,7 +67,6 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_MODEL,
     ATTR_NOTIFICATION,
     ATTR_PAID,
-    ATTR_PAID_AT,
     ATTR_PENALTY,
     ATTR_PERIOD,
     ATTR_PREVIOUS,
@@ -430,16 +427,7 @@ class LkcomuAccount(LkcomuEntity[Account]):
 
             for payment in payments:
                 event_data[ATTR_SUM] += payment.amount
-                results.append(
-                    {
-                        ATTR_AMOUNT: payment.amount,
-                        ATTR_PAID_AT: payment.paid_at.isoformat(),
-                        ATTR_STATUS: payment.status,
-                        ATTR_AGENT: payment.agent,
-                        ATTR_PERIOD: payment.period.isoformat(),
-                        ATTR_GROUP: payment.group_id,
-                    }
-                )
+                results.append(payment_to_attrs(payment))
 
         except BaseException as e:
             event_data[ATTR_COMMENT] = "Unknown error: %r" % e
@@ -486,20 +474,7 @@ class LkcomuAccount(LkcomuEntity[Account]):
 
             for invoice in invoices:
                 event_data[ATTR_SUM] += invoice.total
-                results.append(
-                    {
-                        ATTR_PERIOD: invoice.period.isoformat(),
-                        ATTR_INVOICE_ID: invoice.id,
-                        ATTR_TOTAL: invoice.total,
-                        ATTR_PAID: invoice.paid,
-                        ATTR_INITIAL: invoice.initial,
-                        ATTR_CHARGED: invoice.charged,
-                        ATTR_INSURANCE: invoice.insurance,
-                        ATTR_BENEFITS: invoice.benefits,
-                        ATTR_PENALTY: invoice.penalty,
-                        ATTR_SERVICE: invoice.service,
-                    }
-                )
+                results.append(invoice_to_attrs(invoice))
 
         except BaseException as e:
             event_data[ATTR_COMMENT] = "Unknown error: %r" % e
@@ -971,18 +946,7 @@ class LkcomuLastInvoice(LkcomuEntity[AbstractAccountWithInvoices]):
         invoice = self._last_invoice
 
         if invoice:
-            attributes = {
-                ATTR_PERIOD: invoice.period.isoformat(),
-                ATTR_INVOICE_ID: invoice.id,
-                ATTR_TOTAL: invoice.total,
-                ATTR_PAID: invoice.paid,
-                ATTR_INITIAL: invoice.initial,
-                ATTR_CHARGED: invoice.charged,
-                ATTR_INSURANCE: invoice.insurance,
-                ATTR_BENEFITS: invoice.benefits,
-                ATTR_PENALTY: invoice.penalty,
-                ATTR_SERVICE: invoice.service,
-            }
+            attributes = invoice_to_attrs(invoice)
 
             self._handle_dev_presentation(
                 attributes,

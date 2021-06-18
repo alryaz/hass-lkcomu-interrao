@@ -11,14 +11,13 @@ from homeassistant.helpers.typing import ConfigType, StateType
 from homeassistant.util import slugify
 
 from custom_components.lkcomu_interrao._base import LkcomuEntity, make_common_async_setup_entry
+from custom_components.lkcomu_interrao._encoders import payment_to_attrs
 from custom_components.lkcomu_interrao.const import (
     ATTR_AGENT,
     ATTR_AMOUNT,
     ATTR_GROUP,
     ATTR_PAID_AT,
     ATTR_PERIOD,
-    ATTR_STATUS,
-    CONF_DEV_PRESENTATION,
     CONF_LAST_PAYMENT,
     DOMAIN,
     FORMAT_VAR_ID,
@@ -113,15 +112,7 @@ class LkcomuLastPayment(LkcomuEntity[AbstractAccountWithPayments], BinarySensorE
             attributes = {}
         else:
 
-            attributes = {
-                ATTR_AMOUNT: payment.amount,
-                ATTR_PAID_AT: payment.paid_at.isoformat(),
-                ATTR_STATUS: payment.status,
-                ATTR_AGENT: payment.agent,
-                ATTR_PERIOD: payment.period.isoformat(),
-                ATTR_GROUP: payment.group_id,
-            }
-
+            attributes = payment_to_attrs(payment)
             self._handle_dev_presentation(
                 attributes, (ATTR_PAID_AT, ATTR_PERIOD), (ATTR_AMOUNT, ATTR_AGENT, ATTR_GROUP)
             )

@@ -1,6 +1,6 @@
 __all__ = (
     "make_common_async_setup_entry",
-    "LkcomuEntity",
+    "LkcomuInterRAOEntity",
     "async_refresh_api_data",
     "async_register_update_delegator",
     "UpdateDelegatorsDataType",
@@ -53,6 +53,7 @@ from custom_components.lkcomu_interrao._util import (
     IS_IN_RUSSIA,
     async_get_icons_for_providers,
     mask_username,
+    with_auto_auth,
 )
 from custom_components.lkcomu_interrao.const import (
     ATTRIBUTION_EN,
@@ -76,7 +77,6 @@ from custom_components.lkcomu_interrao.const import (
     SUPPORTED_PLATFORMS,
 )
 from inter_rao_energosbyt.enums import ProviderType
-from inter_rao_energosbyt.exceptions import EnergosbytException
 
 if TYPE_CHECKING:
     from homeassistant.helpers.entity_registry import RegistryEntry
@@ -84,14 +84,16 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-_TLkcomuEntity = TypeVar("_TLkcomuEntity", bound="LkcomuEntity")
+_TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound="LkcomuInterRAOEntity")
 
 AddEntitiesCallType = Callable[[List["MESEntity"], bool], Any]
 UpdateDelegatorsDataType = Dict[str, Tuple[AddEntitiesCallType, Set[Type["MESEntity"]]]]
-EntitiesDataType = Dict[Type["LkcomuEntity"], Dict[Hashable, "LkcomuEntity"]]
+EntitiesDataType = Dict[Type["LkcomuInterRAOEntity"], Dict[Hashable, "LkcomuInterRAOEntity"]]
 
 
-def make_common_async_setup_entry(entity_cls: Type["LkcomuEntity"], *args: Type["LkcomuEntity"]):
+def make_common_async_setup_entry(
+    entity_cls: Type["LkcomuInterRAOEntity"], *args: Type["LkcomuInterRAOEntity"]
+):
     async def _async_setup_entry(
         hass: HomeAssistantType,
         config_entry: ConfigEntry,
@@ -131,8 +133,8 @@ async def async_register_update_delegator(
     config_entry: ConfigEntry,
     platform: str,
     async_add_entities: AddEntitiesCallType,
-    entity_cls: Type["LkcomuEntity"],
-    *args: Type["LkcomuEntity"],
+    entity_cls: Type["LkcomuInterRAOEntity"],
+    *args: Type["LkcomuInterRAOEntity"],
     update_after_complete: bool = True,
 ):
     entry_id = config_entry.entry_id
@@ -154,11 +156,7 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
     entry_id = config_entry.entry_id
     api: "BaseEnergosbytAPI" = hass.data[DATA_API_OBJECTS][entry_id]
 
-    try:
-        accounts = await api.async_update_accounts(with_related=False)
-    except EnergosbytException:
-        await api.async_authenticate()
-        accounts = await api.async_update_accounts(with_related=False)
+    accounts = await with_auto_auth(api, api.async_update_accounts, with_related=False)
 
     update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS][entry_id]
 
@@ -361,7 +359,7 @@ SupportedServicesType = Mapping[
 ]
 
 
-class LkcomuEntity(Entity, Generic[_TAccount]):
+class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
     config_key: ClassVar[str] = NotImplemented
 
     _supported_services: ClassVar[SupportedServicesType] = {}
@@ -562,12 +560,8 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
             self.updater_restart()
 
     async def async_update(self) -> None:
-        try:
-            await self.async_update_internal()
-        except EnergosbytException:
-            # @TODO: more sophisticated error handling
-            await self._account.api.async_authenticate()
-            await self.async_update_internal()
+        # @TODO: more sophisticated error handling
+        await with_auto_auth(self._account.api, self.async_update_internal)
 
     #################################################################################
     # Functional base for inherent classes
@@ -576,12 +570,12 @@ class LkcomuEntity(Entity, Generic[_TAccount]):
     @classmethod
     @abstractmethod
     async def async_refresh_accounts(
-        cls: Type[_TLkcomuEntity],
-        entities: Dict[Hashable, _TLkcomuEntity],
+        cls: Type[_TLkcomuInterRAOEntity],
+        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
-    ) -> Optional[Iterable[_TLkcomuEntity]]:
+    ) -> Optional[Iterable[_TLkcomuInterRAOEntity]]:
         raise NotImplementedError
 
     #################################################################################

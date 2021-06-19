@@ -4,6 +4,7 @@ import logging
 from collections import OrderedDict
 from datetime import timedelta
 from functools import partial
+from pprint import pprint
 from typing import (
     Any,
     ClassVar,
@@ -28,10 +29,10 @@ from homeassistant.const import (
     CONF_TYPE,
     CONF_USERNAME,
 )
-from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
+from custom_components.lkcomu_interrao import CONFIG_ENTRY_SCHEMA
 from custom_components.lkcomu_interrao._util import import_api_cls
 from custom_components.lkcomu_interrao.const import (
     API_TYPE_DEFAULT,
@@ -50,6 +51,7 @@ from inter_rao_energosbyt.exceptions import EnergosbytException
 from inter_rao_energosbyt.interfaces import (
     AbstractAccountWithMeters,
     AbstractMeter,
+    Account,
     BaseEnergosbytAPI,
 )
 
@@ -59,6 +61,16 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 CONF_DISABLE_ENTITIES = "disable_entities"
+
+
+def _flatten(conf: Any):
+    if isinstance(conf, timedelta):
+        return conf.total_seconds()
+    if isinstance(conf, Mapping):
+        return dict(zip(conf.keys(), map(_flatten, conf.values())))
+    if isinstance(conf, (list, tuple)):
+        return list(map(_flatten, conf))
+    return conf
 
 
 class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -72,8 +84,9 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self):
         """Instantiate config flow."""
         self._current_type = None
-        self._current_config = None
+        self._current_config: Optional[ConfigType] = None
         self._devices_info = None
+        self._accounts: Optional[Mapping[int, "Account"]] = None
 
         self.schema_user = None
 
@@ -140,23 +153,68 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.error("Could not find API type: %s", type_)
             return self.async_abort(reason="api_load_error")
 
-        try:
-            await api_cls(
-                username=username,
-                password=user_input[CONF_PASSWORD],
-                user_agent=user_input[CONF_USER_AGENT],
-            ).async_authenticate()
+        async with api_cls(
+            username=username,
+            password=user_input[CONF_PASSWORD],
+            user_agent=user_input[CONF_USER_AGENT],
+        ) as api:
+            try:
+                await api.async_authenticate()
 
-        except EnergosbytException:
+            except EnergosbytException as e:
+                _LOGGER.error(f"Authentication error: {repr(e)}")
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=self.schema_user,
+                    errors={"base": "authentication_error"},
+                )
+
+            try:
+                self._accounts = await api.async_update_accounts()
+
+            except EnergosbytException as e:
+                _LOGGER.error(f"Request error: {repr(e)}")
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=self.schema_user,
+                    errors={"base": "update_accounts_error"},
+                )
+
+        self._current_config = user_input
+
+        return await self.async_step_select()
+
+    async def async_step_select(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
+        accounts, current_config = self._accounts, self._current_config
+        if user_input is None:
+            if accounts is None or current_config is None:
+                print("CONFIGS ARE NONE", accounts, current_config)
+                return await self.async_step_user()
+
             return self.async_show_form(
-                step_id="user",
-                data_schema=self.schema_user,
-                errors={"base": "authentication_error"},
+                step_id="select",
+                data_schema=vol.Schema(
+                    {
+                        vol.Optional(CONF_ACCOUNTS): cv.multi_select(
+                            {
+                                account.code: account.code + " (" + account.provider_name + ")"
+                                for account_id, account in self._accounts.items()
+                            }
+                        )
+                    }
+                ),
             )
 
+        if user_input[CONF_ACCOUNTS]:
+            current_config[CONF_DEFAULT] = False
+            current_config[CONF_ACCOUNTS] = dict.fromkeys(user_input[CONF_ACCOUNTS], True)
+
         return self.async_create_entry(
-            title=self.make_entry_title(api_cls, username),
-            data=user_input,
+            title=self.make_entry_title(
+                import_api_cls(current_config[CONF_TYPE]),
+                current_config[CONF_USERNAME],
+            ),
+            data=_flatten(current_config),
         )
 
     async def async_step_import(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:

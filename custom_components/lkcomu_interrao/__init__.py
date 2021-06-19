@@ -100,7 +100,7 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
-    """Set up the Mosenergosbyt component."""
+    """Set up the Inter RAO component."""
     domain_config = config.get(DOMAIN)
     if not domain_config:
         return True

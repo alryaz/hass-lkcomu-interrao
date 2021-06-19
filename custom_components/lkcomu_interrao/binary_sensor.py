@@ -10,7 +10,10 @@ from homeassistant.const import (
 from homeassistant.helpers.typing import ConfigType, StateType
 from homeassistant.util import slugify
 
-from custom_components.lkcomu_interrao._base import LkcomuEntity, make_common_async_setup_entry
+from custom_components.lkcomu_interrao._base import (
+    LkcomuInterRAOEntity,
+    make_common_async_setup_entry,
+)
 from custom_components.lkcomu_interrao._encoders import payment_to_attrs
 from custom_components.lkcomu_interrao.const import (
     ATTR_AGENT,
@@ -26,10 +29,12 @@ from custom_components.lkcomu_interrao.const import (
 )
 from inter_rao_energosbyt.interfaces import AbstractAccountWithPayments, AbstractPayment, Account
 
-_TLkcomuEntity = TypeVar("_TLkcomuEntity", bound=LkcomuEntity)
+_TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound=LkcomuInterRAOEntity)
 
 
-class LkcomuLastPayment(LkcomuEntity[AbstractAccountWithPayments], BinarySensorEntity):
+class LkcomuInterRAOLastPayment(
+    LkcomuInterRAOEntity[AbstractAccountWithPayments], BinarySensorEntity
+):
     config_key: ClassVar[str] = CONF_LAST_PAYMENT
 
     def __init__(self, *args, last_payment: Optional[AbstractPayment] = None, **kwargs) -> None:
@@ -59,12 +64,12 @@ class LkcomuLastPayment(LkcomuEntity[AbstractAccountWithPayments], BinarySensorE
 
     @classmethod
     async def async_refresh_accounts(
-        cls: Type[_TLkcomuEntity],
-        entities: Dict[Hashable, _TLkcomuEntity],
+        cls: Type[_TLkcomuInterRAOEntity],
+        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
-    ) -> Optional[Iterable[_TLkcomuEntity]]:
+    ) -> Optional[Iterable[_TLkcomuInterRAOEntity]]:
         if isinstance(account, AbstractAccountWithPayments):
             entity_key = account.id
 
@@ -139,4 +144,4 @@ class LkcomuLastPayment(LkcomuEntity[AbstractAccountWithPayments], BinarySensorE
         return DOMAIN + "_payment"
 
 
-async_setup_entry = make_common_async_setup_entry(LkcomuLastPayment)
+async_setup_entry = make_common_async_setup_entry(LkcomuInterRAOLastPayment)

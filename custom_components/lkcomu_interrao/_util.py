@@ -2,7 +2,18 @@ import asyncio
 import datetime
 import re
 from datetime import timedelta
-from typing import Any, Dict, Optional, Set, TYPE_CHECKING, Type, Union
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Dict,
+    Optional,
+    Set,
+    TYPE_CHECKING,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
@@ -13,6 +24,7 @@ from homeassistant.helpers.typing import HomeAssistantType
 
 from custom_components.lkcomu_interrao.const import DOMAIN
 from inter_rao_energosbyt.enums import ProviderType
+from inter_rao_energosbyt.exceptions import EnergosbytException
 
 if TYPE_CHECKING:
     from inter_rao_energosbyt.interfaces import BaseEnergosbytAPI
@@ -57,7 +69,7 @@ def mask_username(username: str):
     return "@".join(map(lambda x: _RE_USERNAME_MASK.sub(r"\1\2***\3", x), parts))
 
 
-_RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w\.]+\.ico)"')
+_RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w.]+\.ico)"')
 
 ICONS_FOR_PROVIDERS: Dict[str, Optional[Union[asyncio.Future, str]]] = {}
 
@@ -130,3 +142,15 @@ LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinf
 
 # Kaliningrad is excluded as it is not supported
 IS_IN_RUSSIA = timedelta(hours=3) <= LOCAL_TIMEZONE.utcoffset(None) <= timedelta(hours=12)
+_T = TypeVar("_T")
+_RT = TypeVar("_RT")
+
+
+async def with_auto_auth(
+    api: "BaseEnergosbytAPI", async_getter: Callable[..., Coroutine[Any, Any, _RT]], *args, **kwargs
+) -> _RT:
+    try:
+        return await async_getter(*args, **kwargs)
+    except EnergosbytException:
+        await api.async_authenticate()
+        return await async_getter(*args, **kwargs)

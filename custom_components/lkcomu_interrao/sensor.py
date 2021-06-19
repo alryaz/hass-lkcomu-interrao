@@ -1,5 +1,5 @@
 """
-Sensor for Mosenergosbyt cabinet.
+Sensor for Inter RAO cabinet.
 Retrieves indications regarding current state of accounts.
 """
 import logging
@@ -35,11 +35,12 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import slugify
 
 from custom_components.lkcomu_interrao._base import (
-    LkcomuEntity,
+    LkcomuInterRAOEntity,
     SupportedServicesType,
     make_common_async_setup_entry,
 )
 from custom_components.lkcomu_interrao._encoders import invoice_to_attrs, payment_to_attrs
+from custom_components.lkcomu_interrao._util import with_auto_auth
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
@@ -117,7 +118,6 @@ _LOGGER = logging.getLogger(__name__)
 RE_HTML_TAGS = re.compile(r"<[^<]+?>")
 RE_MULTI_SPACES = re.compile(r"\s{2,}")
 
-
 INDICATIONS_MAPPING_SCHEMA = vol.Schema(
     {
         vol.Required(vol.Match(r"t\d+")): cv.positive_float,
@@ -167,7 +167,7 @@ SERVICE_SET_DESCRIPTION: Final = "set_description"
 SERVICE_GET_PAYMENTS: Final = "get_payments"
 SERVICE_GET_INVOICES: Final = "get_invoices"
 
-_TLkcomuEntity = TypeVar("_TLkcomuEntity", bound=LkcomuEntity)
+_TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound=LkcomuInterRAOEntity)
 
 
 def get_supported_features(from_services: SupportedServicesType, for_object: Any) -> int:
@@ -182,7 +182,7 @@ def get_supported_features(from_services: SupportedServicesType, for_object: Any
     return features
 
 
-class LkcomuAccount(LkcomuEntity[Account]):
+class LkcomuAccount(LkcomuInterRAOEntity[Account]):
     """The class for this sensor"""
 
     config_key: ClassVar[str] = CONF_ACCOUNTS
@@ -357,7 +357,7 @@ class LkcomuAccount(LkcomuEntity[Account]):
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: Dict[Hashable, _TLkcomuEntity],
+        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
@@ -423,7 +423,12 @@ class LkcomuAccount(LkcomuEntity[Account]):
         }
 
         try:
-            payments = await account.async_get_payments(dt_start, dt_end)
+            payments = await with_auto_auth(
+                account.api,
+                account.async_get_payments,
+                dt_start,
+                dt_end,
+            )
 
             for payment in payments:
                 event_data[ATTR_SUM] += payment.amount
@@ -470,7 +475,12 @@ class LkcomuAccount(LkcomuEntity[Account]):
         }
 
         try:
-            invoices = await account.async_get_invoices(dt_start, dt_end)
+            invoices = await with_auto_auth(
+                account.api,
+                account.async_get_invoices,
+                dt_start,
+                dt_end,
+            )
 
             for invoice in invoices:
                 event_data[ATTR_SUM] += invoice.total
@@ -505,7 +515,9 @@ class LkcomuAccount(LkcomuEntity[Account]):
         }
 
         try:
-            await account.async_set_description(
+            await with_auto_auth(
+                account.api,
+                account.async_set_description,
                 description=event_data[ATTR_DESCRIPTION],
                 update=False,
             )
@@ -533,7 +545,7 @@ class LkcomuAccount(LkcomuEntity[Account]):
             _LOGGER.info(self.log_prefix + "End handling indications calculation")
 
 
-class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
+class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
     """The class for this sensor"""
 
     config_key: ClassVar[str] = CONF_METERS
@@ -562,7 +574,7 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: Dict[Hashable, Optional[_TLkcomuEntity]],
+        entities: Dict[Hashable, Optional[_TLkcomuInterRAOEntity]],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
@@ -816,7 +828,9 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
 
                 event_data[ATTR_INDICATIONS] = dict(indications)
 
-                await meter.async_submit_indications(
+                await with_auto_auth(
+                    meter.account.api,
+                    meter.async_submit_indications,
                     **indications,
                     ignore_periods=call_data[ATTR_IGNORE_PERIOD],
                     ignore_values=call_data[ATTR_IGNORE_INDICATIONS],
@@ -866,7 +880,9 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
 
             event_data[ATTR_INDICATIONS] = dict(indications)
 
-            calculation = await meter.async_calculate_indications(
+            calculation = await with_auto_auth(
+                meter.account.api,
+                meter.async_calculate_indications,
                 **indications,
                 ignore_periods=call_data[ATTR_IGNORE_PERIOD],
                 ignore_values=call_data[ATTR_IGNORE_INDICATIONS],
@@ -899,7 +915,7 @@ class LkcomuMeter(LkcomuEntity[AbstractAccountWithMeters]):
             _LOGGER.info(self.log_prefix + "End handling indications calculation")
 
 
-class LkcomuLastInvoice(LkcomuEntity[AbstractAccountWithInvoices]):
+class LkcomuLastInvoice(LkcomuInterRAOEntity[AbstractAccountWithInvoices]):
     config_key = CONF_LAST_INVOICE
 
     def __init__(self, *args, last_invoice: Optional["AbstractInvoice"] = None, **kwargs) -> None:
@@ -979,7 +995,7 @@ class LkcomuLastInvoice(LkcomuEntity[AbstractAccountWithInvoices]):
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: Dict[Hashable, _TLkcomuEntity],
+        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,

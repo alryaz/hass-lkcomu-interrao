@@ -1,7 +1,7 @@
 __all__ = ("CONFIG_ENTRY_SCHEMA",)
 
 from datetime import timedelta
-from typing import Any, Hashable, Mapping, Optional, TypeVar, Union
+from typing import Any, Hashable, Mapping, Optional
 
 import voluptuous as vol
 from homeassistant.const import (
@@ -20,26 +20,22 @@ from custom_components.lkcomu_interrao.const import (
     CONF_ACCOUNTS,
     CONF_DEV_PRESENTATION,
     CONF_LAST_INVOICE,
+    CONF_LAST_PAYMENT,
     CONF_LOGOS,
     CONF_METERS,
     CONF_NAME_FORMAT,
-    CONF_LAST_PAYMENT,
     CONF_USER_AGENT,
     DEFAULT_NAME_FORMAT_EN_ACCOUNTS,
     DEFAULT_NAME_FORMAT_EN_LAST_INVOICE,
-    DEFAULT_NAME_FORMAT_EN_METERS,
     DEFAULT_NAME_FORMAT_EN_LAST_PAYMENT,
+    DEFAULT_NAME_FORMAT_EN_METERS,
     DEFAULT_NAME_FORMAT_RU_ACCOUNTS,
     DEFAULT_NAME_FORMAT_RU_LAST_INVOICE,
-    DEFAULT_NAME_FORMAT_RU_METERS,
     DEFAULT_NAME_FORMAT_RU_LAST_PAYMENT,
+    DEFAULT_NAME_FORMAT_RU_METERS,
     DEFAULT_SCAN_INTERVAL,
 )
 
-TValidated = TypeVar("TValidated")
-TCodeIndex = TypeVar("TCodeIndex", bound=Hashable)
-EntityOptionsDict = Mapping[str, Mapping[Union[TCodeIndex, str], TValidated]]
-TFiltered = TypeVar("TFiltered")
 MIN_SCAN_INTERVAL = timedelta(seconds=60)
 
 

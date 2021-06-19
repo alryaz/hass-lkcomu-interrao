@@ -1,10 +1,9 @@
-"""Mosenergosbyt integration config and option flow handlers"""
+"""Inter RAO integration config and option flow handlers"""
 import asyncio
 import logging
 from collections import OrderedDict
 from datetime import timedelta
 from functools import partial
-from pprint import pprint
 from typing import (
     Any,
     ClassVar,
@@ -32,7 +31,6 @@ from homeassistant.const import (
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from custom_components.lkcomu_interrao import CONFIG_ENTRY_SCHEMA
 from custom_components.lkcomu_interrao._util import import_api_cls
 from custom_components.lkcomu_interrao.const import (
     API_TYPE_DEFAULT,
@@ -56,7 +54,7 @@ from inter_rao_energosbyt.interfaces import (
 )
 
 if TYPE_CHECKING:
-    from custom_components.lkcomu_interrao._base import LkcomuEntity
+    from custom_components.lkcomu_interrao._base import LkcomuInterRAOEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,8 +71,8 @@ def _flatten(conf: Any):
     return conf
 
 
-class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Mosenergosbyt config entries."""
+class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Inter RAO config entries."""
 
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
@@ -237,7 +235,7 @@ class MosenergosbytConfigFlow(ConfigFlow, domain=DOMAIN):
     # @staticmethod
     # @callback
     # def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-    #     return MosenergosbytOptionsFlow(config_entry)
+    #     return Inter RAOOptionsFlow(config_entry)
 
 
 CONF_DISABLE_ACCOUNTS = "disable_" + CONF_ACCOUNTS
@@ -246,8 +244,8 @@ CONF_DISABLE_INVOICES = "disable_" + CONF_LAST_INVOICE
 CONF_USE_TEXT_FIELDS = "use_text_fields"
 
 
-class MosenergosbytOptionsFlow(OptionsFlow):
-    """Handler for Mosenergosbyt options"""
+class InterRAOOptionsFlow(OptionsFlow):
+    """Handler for Inter RAO options"""
 
     def __init__(self, config_entry: ConfigEntry):
         self.config_entry = config_entry
@@ -293,7 +291,7 @@ class MosenergosbytOptionsFlow(OptionsFlow):
 
         options = OrderedDict()
 
-        entities: List["LkcomuEntity"] = (
+        entities: List["LkcomuInterRAOEntity"] = (
             self.hass.data.get(DATA_ENTITIES, {})
             .get(self.config_entry.entry_id, {})
             .get(config_key, [])

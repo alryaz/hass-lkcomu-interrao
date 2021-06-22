@@ -74,6 +74,7 @@ from custom_components.lkcomu_interrao.const import (
     ATTR_PROVIDER_NAME,
     ATTR_PROVIDER_TYPE,
     ATTR_REASON,
+    ATTR_REMAINING_DAYS,
     ATTR_RESULT,
     ATTR_SERVICE_NAME,
     ATTR_SERVICE_TYPE,
@@ -665,13 +666,25 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
             attributes[ATTR_INSTALL_DATE] = install_date.isoformat()
 
         # Submission periods attributes
-        is_submittable = isinstance(met, AbstractSubmittableMeter)
-        if is_submittable:
+        is_submittable = False
+        if isinstance(met, AbstractSubmittableMeter):
+            is_submittable = True  # this weird hack calms my IDE
+
             # noinspection PyUnresolvedReferences
+            today = date.today()
             start_date, end_date = met.submission_period
             attributes[ATTR_SUBMIT_PERIOD_START] = start_date.isoformat()
             attributes[ATTR_SUBMIT_PERIOD_END] = end_date.isoformat()
-            attributes[ATTR_SUBMIT_PERIOD_ACTIVE] = start_date <= date.today() <= end_date
+            attributes[ATTR_SUBMIT_PERIOD_ACTIVE] = start_date <= today <= end_date
+
+            if date.today() >= end_date:
+                remaining_days = 0
+            elif date.today() >= start_date:
+                remaining_days = (end_date - today).days
+            else:
+                remaining_days = (start_date - today).days
+
+            attributes[ATTR_REMAINING_DAYS] = remaining_days
 
         last_indications_date = met.last_indications_date
         attributes[ATTR_LAST_INDICATIONS_DATE] = (

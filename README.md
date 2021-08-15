@@ -6,7 +6,7 @@ _ЕЛК ЖКХ &#xab;Интер РАО&#xbb;_ для _Home Assistant_
 >
 > Information retrieval from Inter RAO personal cabinets.
 >
->[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+>[![hacs_badge](https://img.shields.io/badge/HACS-Default-green.svg)](https://github.com/custom-components/hacs)
 > [![Лицензия](https://img.shields.io/badge/%D0%9B%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 > [![Поддержка](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D1%82%D1%81%D1%8F%3F-%D0%B4%D0%B0-green.svg)](https://github.com/alryaz/hass-lkcomu-interrao/graphs/commit-activity)
 >
@@ -20,14 +20,10 @@ _ЕЛК ЖКХ &#xab;Интер РАО&#xbb;_ для _Home Assistant_
 > **✔️️ Рекомендуемый метод**
 
 1. Установите
-   HACS ([инструкция по установке на оф. сайте](https://hacs.xyz/docs/installation/installation/))
-2. Добавьте репозиторий в список дополнительных
-3. Найдите `energosbyt` в поиске по интеграциям <sup>1</sup>
-4. Установите последнюю версию компонента, нажав на кнопку `Установить` (`Install`)
-5. Перезапустите Home Assistant
-
-_<sup>1</sup> При поиске может появиться компонент `Мосэнергосбыт`. Это предшествующая данному
-проекту интеграция, и будет в скором времени упразднена._
+   HACS ([инструкция по установке на оф. сайте](https://hacs.xyz/docs/install
+2. Найдите `energosbyt` в поиске по интеграциям <sup>1</sup>
+3. Установите последнюю версию компонента, нажав на кнопку `Установить` (`Install`)
+4. Перезапустите Home Assistant
 
 ### Вручную
 

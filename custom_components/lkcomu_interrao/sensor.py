@@ -253,7 +253,7 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account]):
 
     @property
     def icon(self) -> str:
-        return "mdi:flash-circle"
+        return "mdi:lightning-bolt-circle"
 
     @property
     def unit_of_measurement(self) -> Optional[str]:

@@ -187,6 +187,14 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 async def async_setup_entry(
     hass: HomeAssistantType, config_entry: config_entries.ConfigEntry
 ) -> bool:
+    # !!! SETUP TEMPORARILY DISABLED !!!
+    # !!! SETUP TEMPORARILY DISABLED !!!
+    # !!! SETUP TEMPORARILY DISABLED !!!
+    return False;
+    # !!! SETUP TEMPORARILY DISABLED !!!
+    # !!! SETUP TEMPORARILY DISABLED !!!
+    # !!! SETUP TEMPORARILY DISABLED !!!
+    
     type_ = config_entry.data[CONF_TYPE]
     username = config_entry.data[CONF_USERNAME]
     unique_key = (type_, username)

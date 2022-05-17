@@ -187,14 +187,6 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 async def async_setup_entry(
     hass: HomeAssistantType, config_entry: config_entries.ConfigEntry
 ) -> bool:
-    # !!! SETUP TEMPORARILY DISABLED !!!
-    # !!! SETUP TEMPORARILY DISABLED !!!
-    # !!! SETUP TEMPORARILY DISABLED !!!
-    return False;
-    # !!! SETUP TEMPORARILY DISABLED !!!
-    # !!! SETUP TEMPORARILY DISABLED !!!
-    # !!! SETUP TEMPORARILY DISABLED !!!
-    
     type_ = config_entry.data[CONF_TYPE]
     username = config_entry.data[CONF_USERNAME]
     unique_key = (type_, username)
@@ -332,8 +324,8 @@ async def async_setup_entry(
                     f"идентификатор {existing_config_entry_id})"
                     if IS_IN_RUSSIA
                     else f"Same profiles retrieved by multiple configurations "
-                         f"(foreign username: {existing_api_object.username}, "
-                         f"ID: {existing_config_entry_id})"
+                    f"(foreign username: {existing_api_object.username}, "
+                    f"ID: {existing_config_entry_id})"
                 )
             )
             await hass.config_entries.async_set_disabled_by(config_entry.entry_id, DOMAIN)
@@ -365,7 +357,8 @@ async def async_setup_entry(
 
 
 async def async_reload_entry(
-    hass: HomeAssistantType, config_entry: config_entries.ConfigEntry,
+    hass: HomeAssistantType,
+    config_entry: config_entries.ConfigEntry,
 ) -> bool:
     """Reload Lkcomu InterRAO entry"""
     log_prefix = _make_log_prefix(config_entry, "setup")
@@ -377,7 +370,8 @@ async def async_reload_entry(
 
 
 async def async_unload_entry(
-    hass: HomeAssistantType, config_entry: config_entries.ConfigEntry,
+    hass: HomeAssistantType,
+    config_entry: config_entries.ConfigEntry,
 ) -> bool:
     """Unload Lkcomu InterRAO entry"""
     log_prefix = _make_log_prefix(config_entry, "setup")

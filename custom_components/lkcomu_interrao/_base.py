@@ -44,7 +44,8 @@ from homeassistant.const import (
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.typing import ConfigType, HomeAssistantType
+from homeassistant.helpers.typing import ConfigType
+from homeassistant.core import HomeAssistant
 from homeassistant.util import as_local, utcnow
 
 from custom_components.lkcomu_interrao._util import (
@@ -92,7 +93,7 @@ def make_common_async_setup_entry(
     entity_cls: Type["LkcomuInterRAOEntity"], *args: Type["LkcomuInterRAOEntity"]
 ):
     async def _async_setup_entry(
-        hass: HomeAssistantType,
+        hass: HomeAssistant,
         config_entry: ConfigEntry,
         async_add_devices,
     ):
@@ -126,7 +127,7 @@ def make_common_async_setup_entry(
 
 
 async def async_register_update_delegator(
-    hass: HomeAssistantType,
+    hass: HomeAssistant,
     config_entry: ConfigEntry,
     platform: str,
     async_add_entities: AddEntitiesCallType,
@@ -146,7 +147,7 @@ async def async_register_update_delegator(
         await async_refresh_api_data(hass, config_entry)
 
 
-async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEntry):
+async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry):
     entry_id = config_entry.entry_id
     api: "BaseEnergosbytAPI" = hass.data[DATA_API_OBJECTS][entry_id]
 

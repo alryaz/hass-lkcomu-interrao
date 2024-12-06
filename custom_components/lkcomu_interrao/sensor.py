@@ -24,11 +24,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     CONF_DESCRIPTION,
-    STATE_LOCKED,
     STATE_OK,
     STATE_PROBLEM,
     STATE_UNKNOWN,
 )
+from homeassistant.components.lock.const import LockState
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import slugify
@@ -265,7 +265,7 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         }
 
         if account.is_locked:
-            attributes[ATTR_STATUS] = STATE_LOCKED
+            attributes[ATTR_STATUS] = LockState.LOCKED
             attributes[ATTR_REASON] = account.lock_reason
 
         else:

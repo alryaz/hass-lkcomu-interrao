@@ -22,7 +22,8 @@ from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import CONF_PASSWORD, CONF_TYPE, CONF_USERNAME
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.typing import ConfigType, HomeAssistantType
+from homeassistant.helpers.typing import ConfigType
+from homeassistant.core import HomeAssistant
 
 from custom_components.lkcomu_interrao._base import UpdateDelegatorsDataType
 from custom_components.lkcomu_interrao._schema import CONFIG_ENTRY_SCHEMA
@@ -99,7 +100,7 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistantType, config: ConfigType):
+async def async_setup(hass: HomeAssistant, config: ConfigType):
     """Set up the Inter RAO component."""
     domain_config = config.get(DOMAIN)
     if not domain_config:
@@ -185,7 +186,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 
 
 async def async_setup_entry(
-    hass: HomeAssistantType, config_entry: config_entries.ConfigEntry
+    hass: HomeAssistant, config_entry: config_entries.ConfigEntry
 ) -> bool:
     type_ = config_entry.data[CONF_TYPE]
     username = config_entry.data[CONF_USERNAME]
@@ -338,13 +339,10 @@ async def async_setup_entry(
     hass.data.setdefault(DATA_UPDATE_DELEGATORS, {})[entry_id] = {}
 
     # Forward entry setup to sensor platform
-    for domain in (SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN):
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(
-                config_entry,
-                domain,
-            )
-        )
+    await hass.config_entries.async_forward_entry_setups(
+        config_entry,
+        [SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN],
+    )
 
     # Create options update listener
     update_listener = config_entry.add_update_listener(async_reload_entry)
@@ -357,7 +355,7 @@ async def async_setup_entry(
 
 
 async def async_reload_entry(
-    hass: HomeAssistantType,
+    hass: HomeAssistant,
     config_entry: config_entries.ConfigEntry,
 ) -> bool:
     """Reload Lkcomu InterRAO entry"""
@@ -370,7 +368,7 @@ async def async_reload_entry(
 
 
 async def async_unload_entry(
-    hass: HomeAssistantType,
+    hass: HomeAssistant,
     config_entry: config_entries.ConfigEntry,
 ) -> bool:
     """Unload Lkcomu InterRAO entry"""

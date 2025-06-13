@@ -243,7 +243,15 @@ async def async_setup_entry(
     from inter_rao_energosbyt.exceptions import EnergosbytException
 
     try:
-        api_cls = import_api_cls(type_)
+
+        res = await gather(import_api_cls(type_))
+    
+        for r in res:
+            if isinstance(r, Exception): 
+                raise r
+            
+            api_cls = r    
+
     except (ImportError, AttributeError):
         _LOGGER.error(
             log_prefix

@@ -243,7 +243,15 @@ async def async_setup_entry(
     from inter_rao_energosbyt.exceptions import EnergosbytException
 
     try:
-        api_cls = import_api_cls(type_)
+
+        res = await gather(import_api_cls(type_))
+    
+        for r in res:
+            if isinstance(r, Exception): 
+                raise r
+            
+            api_cls = r    
+
     except (ImportError, AttributeError):
         _LOGGER.error(
             log_prefix
@@ -328,7 +336,7 @@ async def async_setup_entry(
                     f"ID: {existing_config_entry_id})"
                 )
             )
-            await hass.config_entries.async_set_disabled_by(config_entry.entry_id, DOMAIN)
+            await hass.config_entries.async_set_disabled_by(config_entry.entry_id, ConfigEntryDisabler.USER)
             return False
 
     # Create placeholders

@@ -328,7 +328,7 @@ async def async_setup_entry(
                     f"ID: {existing_config_entry_id})"
                 )
             )
-            await hass.config_entries.async_set_disabled_by(config_entry.entry_id, DOMAIN)
+            await hass.config_entries.async_set_disabled_by(config_entry.entry_id, ConfigEntryDisabler.USER)
             return False
 
     # Create placeholders

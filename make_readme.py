@@ -6,7 +6,13 @@ from io import StringIO
 from os import getcwd, listdir, makedirs, path, rename
 from typing import TextIO
 
-from homeassistant.const import ATTR_SERVICE, CONF_DEFAULT, CONF_PASSWORD, CONF_TYPE, CONF_USERNAME
+from homeassistant.const import (
+    ATTR_SERVICE,
+    CONF_DEFAULT,
+    CONF_PASSWORD,
+    CONF_TYPE,
+    CONF_USERNAME,
+)
 from itertools import chain
 from sys import stdout
 from time import sleep
@@ -98,7 +104,10 @@ ACCOUNT_ENT_TYPE = ("Информация о лицевом счёте", CONF_AC
 
 SUPPORT_TYPES = {
     AbstractAccountWithMeters: ("Счётчик коммунальных услуг", CONF_METERS),
-    AbstractAccountWithPayments: ("Последний зарегистрированный платёж", CONF_LAST_PAYMENT),
+    AbstractAccountWithPayments: (
+        "Последний зарегистрированный платёж",
+        CONF_LAST_PAYMENT,
+    ),
     AbstractAccountWithInvoices: ("Последняя выпущенная квитанция", CONF_LAST_INVOICE),
 }
 
@@ -149,7 +158,10 @@ def _write_by_code(output: TextIO, type_: str):
         f"```\n\n"
     )
 
-    for (provider_type_id, service_type), account_cls in api_cls.SUPPORTED_ACCOUNTS.items():
+    for (
+        provider_type_id,
+        service_type,
+    ), account_cls in api_cls.SUPPORTED_ACCOUNTS.items():
         if provider_type_id is None:
             continue
         provider_type = ProviderType(provider_type_id)
@@ -174,7 +186,9 @@ def _write_by_code(output: TextIO, type_: str):
 
         output.write("Для поставщика реализована поддержка следующих объектов:\n")
         for comment, screenshot_key in sorted(
-            chain((ACCOUNT_ENT_TYPE,), map(SUPPORT_TYPES.__getitem__, supported_stuffs)),
+            chain(
+                (ACCOUNT_ENT_TYPE,), map(SUPPORT_TYPES.__getitem__, supported_stuffs)
+            ),
             key=lambda x: x[0],
         ):
             summary_content = "Снимок экрана не предусмотрен"
@@ -212,7 +226,9 @@ def _get_providers_content() -> str:
     from inter_rao_energosbyt.api import __all__ as api_types
 
     for api_type in sorted(
-        api_types, key=lambda x: (len(import_api_cls(x).SUPPORTED_ACCOUNTS), x), reverse=True
+        api_types,
+        key=lambda x: (len(import_api_cls(x).SUPPORTED_ACCOUNTS), x),
+        reverse=True,
     ):
         _write_by_code(output, api_type)
 
@@ -220,10 +236,14 @@ def _get_providers_content() -> str:
 
 
 def _get_gui_configuration() -> str:
-    with open("custom_components/lkcomu_interrao/translations/ru.json", "r", encoding="utf-8") as f:
+    with open(
+        "custom_components/lkcomu_interrao/translations/ru.json", "r", encoding="utf-8"
+    ) as f:
         trans_ru = json.load(f)
 
-    with open("custom_components/lkcomu_interrao/translations/en.json", "r", encoding="utf-8") as f:
+    with open(
+        "custom_components/lkcomu_interrao/translations/en.json", "r", encoding="utf-8"
+    ) as f:
         trans_en = json.load(f)
 
     return (
@@ -238,7 +258,9 @@ def _get_gui_configuration() -> str:
     )
 
 
-_ONLY_SUPPORTED_OBJECTS_WARNING = "> Только для объектов, поддерживающих данный функционал"
+_ONLY_SUPPORTED_OBJECTS_WARNING = (
+    "> Только для объектов, поддерживающих данный функционал"
+)
 _HEADER_PARAMETERS = "###### Параметры"
 _HEADER_RESULTS = "###### Результат"
 
@@ -363,7 +385,7 @@ def _get_yaml_configuration() -> str:
         f"    # Значение по умолчанию: истина (true)\n"
         f"    {CONF_LOGOS}: true | false\n"
     )
-    for (stuff_name, stuff_type) in chain((ACCOUNT_ENT_TYPE,), SUPPORT_TYPES.values()):
+    for stuff_name, stuff_type in chain((ACCOUNT_ENT_TYPE,), SUPPORT_TYPES.values()):
         if stuff_type is None:
             continue
         output.write(

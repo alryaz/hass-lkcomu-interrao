@@ -1,4 +1,14 @@
-from typing import Any, ClassVar, Dict, Hashable, Iterable, Mapping, Optional, Type, TypeVar
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Hashable,
+    Iterable,
+    Mapping,
+    Optional,
+    Type,
+    TypeVar,
+)
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +26,11 @@ from custom_components.lkcomu_interrao.const import (
     FORMAT_VAR_TYPE_EN,
     FORMAT_VAR_TYPE_RU,
 )
-from inter_rao_energosbyt.interfaces import AbstractAccountWithPayments, AbstractPayment, Account
+from inter_rao_energosbyt.interfaces import (
+    AbstractAccountWithPayments,
+    AbstractPayment,
+    Account,
+)
 
 _TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound=LkcomuInterRAOEntity)
 
@@ -28,7 +42,9 @@ class LkcomuInterRAOLastPayment(
 
     config_key: ClassVar[str] = CONF_LAST_PAYMENT
 
-    def __init__(self, *args, last_payment: Optional[AbstractPayment] = None, **kwargs) -> None:
+    def __init__(
+        self, *args, last_payment: Optional[AbstractPayment] = None, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._last_payment = last_payment
 
@@ -90,15 +106,6 @@ class LkcomuInterRAOLastPayment(
         payment = self._last_payment
         if payment:
             return payment_to_attrs(payment)
-
-    @property
-    def name_format_values(self) -> Mapping[str, Any]:
-        last_payment = self._last_payment
-        return {
-            FORMAT_VAR_ID: last_payment.id if last_payment else "<?>",
-            FORMAT_VAR_TYPE_EN: "last payment",
-            FORMAT_VAR_TYPE_RU: "последний платёж",
-        }
 
     @property
     def unique_id(self) -> str:

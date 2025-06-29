@@ -1,4 +1,5 @@
 """Energosbyt API"""
+
 __all__ = (
     "CONFIG_SCHEMA",
     "async_unload_entry",
@@ -40,7 +41,6 @@ from custom_components.lkcomu_interrao.const import (
     CONF_ACCOUNTS,
     CONF_LAST_INVOICE,
     CONF_METERS,
-    CONF_NAME_FORMAT,
     CONF_USER_AGENT,
     DATA_API_OBJECTS,
     DATA_ENTITIES,
@@ -50,9 +50,6 @@ from custom_components.lkcomu_interrao.const import (
     DATA_UPDATE_DELEGATORS,
     DATA_UPDATE_LISTENERS,
     DATA_YAML_CONFIG,
-    DEFAULT_NAME_FORMAT_EN_ACCOUNTS,
-    DEFAULT_NAME_FORMAT_EN_LAST_INVOICE,
-    DEFAULT_NAME_FORMAT_EN_METERS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
@@ -73,10 +70,14 @@ def _unique_entries(value: List[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
         if pair in pairs:
             if pairs[pair] is not None:
                 errors.append(
-                    vol.Invalid("duplicate unique key, first encounter", path=[pairs[pair]])
+                    vol.Invalid(
+                        "duplicate unique key, first encounter", path=[pairs[pair]]
+                    )
                 )
                 pairs[pair] = None
-            errors.append(vol.Invalid("duplicate unique key, subsequent encounter", path=[i]))
+            errors.append(
+                vol.Invalid("duplicate unique key, subsequent encounter", path=[i])
+            )
         else:
             pairs[pair] = i
 
@@ -92,7 +93,12 @@ CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Any(
             vol.Equal({}),
-            vol.All(cv.ensure_list, vol.Length(min=1), [CONFIG_ENTRY_SCHEMA], _unique_entries),
+            vol.All(
+                cv.ensure_list,
+                vol.Length(min=1),
+                [CONFIG_ENTRY_SCHEMA],
+                _unique_entries,
+            ),
         )
     },
     extra=vol.ALLOW_EXTRA,
@@ -178,7 +184,9 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 
     if not yaml_config:
         _LOGGER.debug(
-            "Конфигурация из YAML не обнаружена" if IS_IN_RUSSIA else "YAML configuration not found"
+            "Конфигурация из YAML не обнаружена"
+            if IS_IN_RUSSIA
+            else "YAML configuration not found"
         )
 
     return True
@@ -237,7 +245,11 @@ async def async_setup_entry(
 
     _LOGGER.info(
         log_prefix
-        + ("Применение конфигурационной записи" if IS_IN_RUSSIA else "Applying configuration entry")
+        + (
+            "Применение конфигурационной записи"
+            if IS_IN_RUSSIA
+            else "Applying configuration entry"
+        )
     )
 
     from inter_rao_energosbyt.exceptions import EnergosbytException
@@ -272,19 +284,25 @@ async def async_setup_entry(
             await api_object.async_authenticate()
 
             # Fetch all accounts
-            accounts: Mapping[AccountID, "Account"] = await api_object.async_update_accounts(
-                with_related=True
+            accounts: Mapping[AccountID, "Account"] = (
+                await api_object.async_update_accounts(with_related=True)
             )
 
         except EnergosbytException as e:
             err_cls = ConfigEntryNotReady
-            err_txt = "Ошибка при авторизации" if IS_IN_RUSSIA else "Error during authentication"
+            err_txt = (
+                "Ошибка при авторизации"
+                if IS_IN_RUSSIA
+                else "Error during authentication"
+            )
 
             if len(e.args) == 3:
                 error_code = e.args[1]
                 if error_code in (131, 127, 114):
                     err_cls = ConfigEntryAuthFailed
-                    err_txt = "Ошибка авторизации" if IS_IN_RUSSIA else "Error authenticating"
+                    err_txt = (
+                        "Ошибка авторизации" if IS_IN_RUSSIA else "Error authenticating"
+                    )
 
             err_txt += ": " + repr(e)
             _LOGGER.error(log_prefix + err_txt)
@@ -297,7 +315,8 @@ async def async_setup_entry(
     if not accounts:
         # Cancel setup because no accounts provided
         _LOGGER.warning(
-            log_prefix + ("Лицевые счета не найдены" if IS_IN_RUSSIA else "No accounts found")
+            log_prefix
+            + ("Лицевые счета не найдены" if IS_IN_RUSSIA else "No accounts found")
         )
         await api_object.async_close()
         return False
@@ -313,7 +332,9 @@ async def async_setup_entry(
 
     profile_id = api_object.auth_session.id_profile
 
-    api_objects: Dict[str, "BaseEnergosbytAPI"] = hass_data.setdefault(DATA_API_OBJECTS, {})
+    api_objects: Dict[str, "BaseEnergosbytAPI"] = hass_data.setdefault(
+        DATA_API_OBJECTS, {}
+    )
     for existing_config_entry_id, existing_api_object in api_objects.items():
         if existing_api_object.auth_session.id_profile == profile_id:
             _LOGGER.warning(
@@ -328,7 +349,9 @@ async def async_setup_entry(
                     f"ID: {existing_config_entry_id})"
                 )
             )
-            await hass.config_entries.async_set_disabled_by(config_entry.entry_id, DOMAIN)
+            await hass.config_entries.async_set_disabled_by(
+                config_entry.entry_id, DOMAIN
+            )
             return False
 
     # Create placeholders
@@ -348,7 +371,8 @@ async def async_setup_entry(
     hass_data.setdefault(DATA_UPDATE_LISTENERS, {})[entry_id] = update_listener
 
     _LOGGER.debug(
-        log_prefix + ("Применение конфигурации успешно" if IS_IN_RUSSIA else "Setup successful")
+        log_prefix
+        + ("Применение конфигурации успешно" if IS_IN_RUSSIA else "Setup successful")
     )
     return True
 
@@ -361,7 +385,11 @@ async def async_reload_entry(
     log_prefix = _make_log_prefix(config_entry, "setup")
     _LOGGER.info(
         log_prefix
-        + ("Перезагрузка интеграции" if IS_IN_RUSSIA else "Reloading configuration entry")
+        + (
+            "Перезагрузка интеграции"
+            if IS_IN_RUSSIA
+            else "Reloading configuration entry"
+        )
     )
     return await hass.config_entries.async_reload(config_entry.entry_id)
 
@@ -374,7 +402,9 @@ async def async_unload_entry(
     log_prefix = _make_log_prefix(config_entry, "setup")
     entry_id = config_entry.entry_id
 
-    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS].pop(entry_id)
+    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS].pop(
+        entry_id
+    )
 
     tasks = [
         hass.config_entries.async_forward_entry_unload(config_entry, domain)
@@ -392,7 +422,11 @@ async def async_unload_entry(
 
         _LOGGER.info(
             log_prefix
-            + ("Интеграция выгружена" if IS_IN_RUSSIA else "Unloaded configuration entry")
+            + (
+                "Интеграция выгружена"
+                if IS_IN_RUSSIA
+                else "Unloaded configuration entry"
+            )
         )
 
     else:

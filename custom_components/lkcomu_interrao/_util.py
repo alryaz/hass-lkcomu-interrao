@@ -149,9 +149,6 @@ async def async_get_icons_for_providers(
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
 
 # Kaliningrad is excluded as it is not supported
-IS_IN_RUSSIA = (
-    timedelta(hours=3) <= LOCAL_TIMEZONE.utcoffset(None) <= timedelta(hours=12)
-)
 _T = TypeVar("_T")
 _RT = TypeVar("_RT")
 
@@ -160,7 +157,7 @@ async def with_auto_auth(
     api: "BaseEnergosbytAPI",
     async_getter: Callable[..., Coroutine[Any, Any, _RT]],
     *args,
-    **kwargs
+    **kwargs,
 ) -> _RT:
     try:
         return await async_getter(*args, **kwargs)

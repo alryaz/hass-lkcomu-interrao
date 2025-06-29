@@ -4,8 +4,7 @@ from typing import Final
 
 DOMAIN: Final = "lkcomu_interrao"
 
-ATTRIBUTION_EN: Final = "Data acquired from %s"
-ATTRIBUTION_RU: Final = "Данные получены с %s"
+ATTRIBUTION: Final = "Data acquired from %s"
 
 ATTR_ACCOUNT_CODE: Final = "account_code"
 ATTR_ACCOUNT_ID: Final = "account_id"
@@ -98,12 +97,3 @@ API_TYPE_NAMES: Final = {
 
 
 SUPPORTED_PLATFORMS: Final = ("sensor", "binary_sensor")
-
-FORMAT_VAR_ACCOUNT_CODE: Final = "account_code"
-FORMAT_VAR_ACCOUNT_ID: Final = "account_id"
-FORMAT_VAR_CODE: Final = "code"
-FORMAT_VAR_ID: Final = "id"
-FORMAT_VAR_PROVIDER_CODE: Final = "provider_code"
-FORMAT_VAR_PROVIDER_NAME: Final = "provider_name"
-FORMAT_VAR_TYPE_EN: Final = "type_en"
-FORMAT_VAR_TYPE_RU: Final = "type_ru"

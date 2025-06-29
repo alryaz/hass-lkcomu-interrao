@@ -87,9 +87,6 @@ from custom_components.lkcomu_interrao.const import (
     CONF_METERS,
     DATA_PROVIDER_LOGOS,
     DOMAIN,
-    FORMAT_VAR_ID,
-    FORMAT_VAR_TYPE_EN,
-    FORMAT_VAR_TYPE_RU,
 )
 from inter_rao_energosbyt.exceptions import EnergosbytException
 from inter_rao_energosbyt.interfaces import (

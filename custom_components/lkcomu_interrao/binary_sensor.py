@@ -20,12 +20,7 @@ from custom_components.lkcomu_interrao._base import (
     make_common_async_setup_entry,
 )
 from custom_components.lkcomu_interrao._encoders import payment_to_attrs
-from custom_components.lkcomu_interrao.const import (
-    CONF_LAST_PAYMENT,
-    FORMAT_VAR_ID,
-    FORMAT_VAR_TYPE_EN,
-    FORMAT_VAR_TYPE_RU,
-)
+from custom_components.lkcomu_interrao.const import CONF_LAST_PAYMENT
 from inter_rao_energosbyt.interfaces import (
     AbstractAccountWithPayments,
     AbstractPayment,

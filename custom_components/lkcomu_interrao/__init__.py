@@ -28,7 +28,6 @@ from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 from custom_components.lkcomu_interrao._base import UpdateDelegatorsDataType
 from custom_components.lkcomu_interrao._schema import CONFIG_ENTRY_SCHEMA
 from custom_components.lkcomu_interrao._util import (
-    IS_IN_RUSSIA,
     _find_existing_entry,
     _make_log_prefix,
     async_get_icons_for_providers,
@@ -127,49 +126,23 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
         key = (type_, username)
         log_prefix = f"[{type_}/{mask_username(username)}] "
 
-        _LOGGER.debug(
-            log_prefix
-            + (
-                "Получена конфигурация из YAML"
-                if IS_IN_RUSSIA
-                else "YAML configuration encountered"
-            )
-        )
+        _LOGGER.debug(log_prefix + "YAML configuration encountered")
 
         existing_entry = _find_existing_entry(hass, type_, username)
         if existing_entry:
             if existing_entry.source == config_entries.SOURCE_IMPORT:
                 yaml_config[key] = user_cfg
-                _LOGGER.debug(
-                    log_prefix
-                    + (
-                        "Соответствующая конфигурационная запись существует"
-                        if IS_IN_RUSSIA
-                        else "Matching config entry exists"
-                    )
-                )
+                _LOGGER.debug(log_prefix + "Matching config entry exists")
             else:
                 _LOGGER.warning(
-                    log_prefix
-                    + (
-                        "Конфигурация из YAML переопределена другой конфигурацией!"
-                        if IS_IN_RUSSIA
-                        else "YAML config is overridden by another entry!"
-                    )
+                    log_prefix + "YAML config is overridden by another entry!"
                 )
             continue
 
         # Save YAML configuration
         yaml_config[key] = user_cfg
 
-        _LOGGER.warning(
-            log_prefix
-            + (
-                "Создание новой конфигурационной записи"
-                if IS_IN_RUSSIA
-                else "Creating new config entry"
-            )
-        )
+        _LOGGER.warning(log_prefix + "Creating new config entry")
 
         hass.async_create_task(
             hass.config_entries.flow.async_init(
@@ -183,11 +156,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
         )
 
     if not yaml_config:
-        _LOGGER.debug(
-            "Конфигурация из YAML не обнаружена"
-            if IS_IN_RUSSIA
-            else "YAML configuration not found"
-        )
+        _LOGGER.debug("YAML configuration not found")
 
     return True
 
@@ -210,11 +179,7 @@ async def async_setup_entry(
         if not yaml_config or unique_key not in yaml_config:
             _LOGGER.info(
                 log_prefix
-                + (
-                    f"Удаление записи {entry_id} после удаления из конфигурации YAML"
-                    if IS_IN_RUSSIA
-                    else f"Removing entry {entry_id} after removal from YAML configuration"
-                )
+                + (f"Removing entry {entry_id} after removal from YAML configuration")
             )
             hass.async_create_task(hass.config_entries.async_remove(entry_id))
             return False
@@ -231,26 +196,10 @@ async def async_setup_entry(
         try:
             user_cfg = CONFIG_ENTRY_SCHEMA(all_cfg)
         except vol.Invalid as e:
-            _LOGGER.error(
-                log_prefix
-                + (
-                    "Сохранённая конфигурация повреждена"
-                    if IS_IN_RUSSIA
-                    else "Configuration invalid"
-                )
-                + ": "
-                + repr(e)
-            )
+            _LOGGER.error(log_prefix + "Configuration invalid" + ": " + repr(e))
             return False
 
-    _LOGGER.info(
-        log_prefix
-        + (
-            "Применение конфигурационной записи"
-            if IS_IN_RUSSIA
-            else "Applying configuration entry"
-        )
-    )
+    _LOGGER.info(log_prefix + "Applying configuration entry")
 
     from inter_rao_energosbyt.exceptions import EnergosbytException
 
@@ -260,15 +209,8 @@ async def async_setup_entry(
         _LOGGER.error(
             log_prefix
             + (
-                (
-                    "Невозможно найти тип API. Это фатальная ошибка для компонента. "
-                    "Пожалуйста, обратитесь к разработчику (или заявите о проблеме на GitHub)."
-                )
-                if IS_IN_RUSSIA
-                else (
-                    "Could not find API type. This is a fatal error for the component. "
-                    "Please, report it to the developer (or open an issue on GitHub)."
-                )
+                "Could not find API type. This is a fatal error for the component. "
+                "Please, report it to the developer (or open an issue on GitHub)."
             )
         )
         return False
@@ -290,19 +232,13 @@ async def async_setup_entry(
 
         except EnergosbytException as e:
             err_cls = ConfigEntryNotReady
-            err_txt = (
-                "Ошибка при авторизации"
-                if IS_IN_RUSSIA
-                else "Error during authentication"
-            )
+            err_txt = "Error during authentication"
 
             if len(e.args) == 3:
                 error_code = e.args[1]
                 if error_code in (131, 127, 114):
                     err_cls = ConfigEntryAuthFailed
-                    err_txt = (
-                        "Ошибка авторизации" if IS_IN_RUSSIA else "Error authenticating"
-                    )
+                    err_txt = "Error authenticating"
 
             err_txt += ": " + repr(e)
             _LOGGER.error(log_prefix + err_txt)
@@ -314,21 +250,11 @@ async def async_setup_entry(
 
     if not accounts:
         # Cancel setup because no accounts provided
-        _LOGGER.warning(
-            log_prefix
-            + ("Лицевые счета не найдены" if IS_IN_RUSSIA else "No accounts found")
-        )
+        _LOGGER.warning(log_prefix + ("No accounts found"))
         await api_object.async_close()
         return False
 
-    _LOGGER.debug(
-        log_prefix
-        + (
-            f"Найдено {len(accounts)} лицевых счетов"
-            if IS_IN_RUSSIA
-            else f"Found {len(accounts)} accounts"
-        )
-    )
+    _LOGGER.debug(log_prefix + (f"Found {len(accounts)} accounts"))
 
     profile_id = api_object.auth_session.id_profile
 
@@ -340,11 +266,7 @@ async def async_setup_entry(
             _LOGGER.warning(
                 log_prefix
                 + (
-                    f"Одинаковые профили получены несколькими конфигурациями "
-                    f"(имя пользователя другой записи: {existing_api_object.username}, "
-                    f"идентификатор {existing_config_entry_id})"
-                    if IS_IN_RUSSIA
-                    else f"Same profiles retrieved by multiple configurations "
+                    f"Same profiles retrieved by multiple configurations "
                     f"(foreign username: {existing_api_object.username}, "
                     f"ID: {existing_config_entry_id})"
                 )
@@ -370,10 +292,7 @@ async def async_setup_entry(
     update_listener = config_entry.add_update_listener(async_reload_entry)
     hass_data.setdefault(DATA_UPDATE_LISTENERS, {})[entry_id] = update_listener
 
-    _LOGGER.debug(
-        log_prefix
-        + ("Применение конфигурации успешно" if IS_IN_RUSSIA else "Setup successful")
-    )
+    _LOGGER.debug(log_prefix + ("Setup successful"))
     return True
 
 
@@ -383,14 +302,7 @@ async def async_reload_entry(
 ) -> bool:
     """Reload Lkcomu InterRAO entry"""
     log_prefix = _make_log_prefix(config_entry, "setup")
-    _LOGGER.info(
-        log_prefix
-        + (
-            "Перезагрузка интеграции"
-            if IS_IN_RUSSIA
-            else "Reloading configuration entry"
-        )
-    )
+    _LOGGER.info(log_prefix + "Reloading configuration entry")
     return await hass.config_entries.async_reload(config_entry.entry_id)
 
 
@@ -420,23 +332,9 @@ async def async_unload_entry(
         cancel_listener = hass.data[DATA_UPDATE_LISTENERS].pop(entry_id)
         cancel_listener()
 
-        _LOGGER.info(
-            log_prefix
-            + (
-                "Интеграция выгружена"
-                if IS_IN_RUSSIA
-                else "Unloaded configuration entry"
-            )
-        )
+        _LOGGER.info(log_prefix + "Unloaded configuration entry")
 
     else:
-        _LOGGER.warning(
-            log_prefix
-            + (
-                "При выгрузке конфигурации произошла ошибка"
-                if IS_IN_RUSSIA
-                else "Failed to unload configuration entry"
-            )
-        )
+        _LOGGER.warning(log_prefix + "Failed to unload configuration entry")
 
     return unload_ok

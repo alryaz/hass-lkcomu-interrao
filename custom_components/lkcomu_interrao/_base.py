@@ -49,14 +49,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import as_local, utcnow
 
 from custom_components.lkcomu_interrao._util import (
-    IS_IN_RUSSIA,
     async_get_icons_for_providers,
     mask_username,
     with_auto_auth,
 )
 from custom_components.lkcomu_interrao.const import (
-    ATTRIBUTION_EN,
-    ATTRIBUTION_RU,
+    ATTRIBUTION,
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
     CONF_ACCOUNTS,
@@ -66,11 +64,6 @@ from custom_components.lkcomu_interrao.const import (
     DATA_PROVIDER_LOGOS,
     DATA_UPDATE_DELEGATORS,
     DOMAIN,
-    FORMAT_VAR_ACCOUNT_CODE,
-    FORMAT_VAR_ACCOUNT_ID,
-    FORMAT_VAR_CODE,
-    FORMAT_VAR_PROVIDER_CODE,
-    FORMAT_VAR_PROVIDER_NAME,
     SUPPORTED_PLATFORMS,
 )
 from inter_rao_energosbyt.enums import ProviderType
@@ -104,14 +97,7 @@ def make_common_async_setup_entry(
             f"[{config_entry.data[CONF_TYPE]}/{mask_username(config_entry.data[CONF_USERNAME])}]"
             f"[{current_entity_platform.domain}][setup] "
         )
-        _LOGGER.debug(
-            log_prefix
-            + (
-                "Регистрация делегата обновлений"
-                if IS_IN_RUSSIA
-                else "Registering update delegator"
-            )
-        )
+        _LOGGER.debug(log_prefix + "Registering update delegator")
 
         await async_register_update_delegator(
             hass,
@@ -163,14 +149,7 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
     log_prefix_base = f"[{config_entry.data[CONF_TYPE]}/{mask_username(config_entry.data[CONF_USERNAME])}]"
     refresh_log_prefix = log_prefix_base + "[refresh] "
 
-    _LOGGER.info(
-        refresh_log_prefix
-        + (
-            "Запуск обновления связанных с профилем данных"
-            if IS_IN_RUSSIA
-            else "Beginning profile-related data update"
-        )
-    )
+    _LOGGER.info(refresh_log_prefix + "Beginning profile-related data update")
 
     if not update_delegators:
         return
@@ -183,11 +162,7 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
         _LOGGER.warning(
             log_prefix_base
             + "[logos] "
-            + (
-                "Произошла ошибка при обновлении логотипов"
-                if IS_IN_RUSSIA
-                else "Error occurred while updating logos"
-            )
+            + "Error occurred while updating logos"
             + ": "
             + repr(e)
         )
@@ -227,26 +202,14 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
                 )
                 if account_config[entity_cls.config_key] is False:
                     _LOGGER.debug(
-                        log_prefix_base
-                        + " "
-                        + (
-                            f"Лицевой счёт пропущен согласно фильтрации"
-                            if IS_IN_RUSSIA
-                            else f"Account skipped due to filtering"
-                        )
+                        log_prefix_base + " " + "Account skipped due to filtering"
                     )
                     continue
 
                 current_entities = entities.setdefault(entity_cls, {})
 
                 _LOGGER.debug(
-                    cls_log_prefix_base
-                    + "[update] "
-                    + (
-                        "Планирование процедуры обновления"
-                        if IS_IN_RUSSIA
-                        else "Planning update procedure"
-                    )
+                    cls_log_prefix_base + "[update] " + "Planning update procedure"
                 )
 
                 add_update_tasks.append(
@@ -274,10 +237,7 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
         _LOGGER.info(
             refresh_log_prefix
             + (
-                f"Выполнение процедур обновления ({all_updates_count}) для платформ: "
-                f"{', '.join(platform_tasks.keys())}"
-                if IS_IN_RUSSIA
-                else f"Performing update procedures ({all_updates_count}) for platforms: "
+                f"Performing update procedures ({all_updates_count}) for platforms: "
                 f"{', '.join(platform_tasks.keys())}"
             )
         )
@@ -300,12 +260,7 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
                 update_delegators[platform][0](all_new_entities, True)
     else:
         _LOGGER.warning(
-            refresh_log_prefix
-            + (
-                "Отсутствуют подходящие платформы для конфигурации"
-                if IS_IN_RUSSIA
-                else "Missing suitable platforms for configuration"
-            )
+            refresh_log_prefix + "Missing suitable platforms for configuration"
         )
 
 
@@ -400,9 +355,7 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
         """Return the attribute(s) of the sensor"""
 
         attributes = {
-            ATTR_ATTRIBUTION: (
-                (ATTRIBUTION_RU if IS_IN_RUSSIA else ATTRIBUTION_EN) % self.api_hostname
-            ),
+            ATTR_ATTRIBUTION: (ATTRIBUTION) % self.api_hostname,
             **(self.sensor_related_attributes or {}),
         }
 

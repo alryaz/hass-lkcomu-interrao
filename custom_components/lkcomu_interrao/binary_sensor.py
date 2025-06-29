@@ -1,7 +1,6 @@
 from typing import (
     Any,
     ClassVar,
-    Dict,
     Hashable,
     Iterable,
     Mapping,
@@ -21,6 +20,7 @@ from custom_components.lkcomu_interrao._base import (
 )
 from custom_components.lkcomu_interrao._encoders import payment_to_attrs
 from custom_components.lkcomu_interrao.const import CONF_LAST_PAYMENT
+
 from inter_rao_energosbyt.interfaces import (
     AbstractAccountWithPayments,
     AbstractPayment,
@@ -68,8 +68,8 @@ class LkcomuInterRAOLastPayment(
 
     @classmethod
     async def async_refresh_accounts(
-        cls: Type[_TLkcomuInterRAOEntity],
-        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
+        cls: type[_TLkcomuInterRAOEntity],
+        entities: dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,

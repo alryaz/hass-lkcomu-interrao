@@ -14,16 +14,17 @@ __all__ = (
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Mapping, Optional, TYPE_CHECKING, Tuple
-
+from typing import Any, Mapping, Optional, TYPE_CHECKING
 import voluptuous as vol
+
 from homeassistant import config_entries
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import CONF_PASSWORD, CONF_TYPE, CONF_USERNAME
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.typing import ConfigType, HomeAssistantType
+from homeassistant.helpers.typing import ConfigType
 
 from custom_components.lkcomu_interrao._base import UpdateDelegatorsDataType
 from custom_components.lkcomu_interrao._schema import CONFIG_ENTRY_SCHEMA
@@ -34,34 +35,15 @@ from custom_components.lkcomu_interrao._util import (
     import_api_cls,
     mask_username,
 )
-from custom_components.lkcomu_interrao.const import (
-    API_TYPE_DEFAULT,
-    API_TYPE_NAMES,
-    CONF_ACCOUNTS,
-    CONF_LAST_INVOICE,
-    CONF_METERS,
-    CONF_USER_AGENT,
-    DATA_API_OBJECTS,
-    DATA_ENTITIES,
-    DATA_FINAL_CONFIG,
-    DATA_PROVIDER_LOGOS,
-    DATA_PROVIDER_LOGOS,
-    DATA_UPDATE_DELEGATORS,
-    DATA_UPDATE_LISTENERS,
-    DATA_YAML_CONFIG,
-    DEFAULT_SCAN_INTERVAL,
-    DOMAIN,
-)
-
+from custom_components.lkcomu_interrao.const import *
 if TYPE_CHECKING:
     from inter_rao_energosbyt.interfaces import Account, AccountID, BaseEnergosbytAPI
-    from custom_components.lkcomu_interrao.sensor import LkcomuAccount
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _unique_entries(value: List[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
-    pairs: Dict[Tuple[str, str], Optional[int]] = {}
+def _unique_entries(value: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    pairs: dict[tuple[str, str], Optional[int]] = {}
 
     errors = []
     for i, config in enumerate(value):
@@ -104,7 +86,7 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistantType, config: ConfigType):
+async def async_setup(hass: HomeAssistant, config: ConfigType):
     """Set up the Inter RAO component."""
     domain_config = config.get(DOMAIN)
     if not domain_config:
@@ -162,7 +144,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 
 
 async def async_setup_entry(
-    hass: HomeAssistantType, config_entry: config_entries.ConfigEntry
+    hass: HomeAssistant, config_entry: config_entries.ConfigEntry
 ) -> bool:
     type_ = config_entry.data[CONF_TYPE]
     username = config_entry.data[CONF_USERNAME]
@@ -258,7 +240,7 @@ async def async_setup_entry(
 
     profile_id = api_object.auth_session.id_profile
 
-    api_objects: Dict[str, "BaseEnergosbytAPI"] = hass_data.setdefault(
+    api_objects: dict[str, "BaseEnergosbytAPI"] = hass_data.setdefault(
         DATA_API_OBJECTS, {}
     )
     for existing_config_entry_id, existing_api_object in api_objects.items():
@@ -297,7 +279,7 @@ async def async_setup_entry(
 
 
 async def async_reload_entry(
-    hass: HomeAssistantType,
+    hass: HomeAssistant,
     config_entry: config_entries.ConfigEntry,
 ) -> bool:
     """Reload Lkcomu InterRAO entry"""
@@ -307,7 +289,7 @@ async def async_reload_entry(
 
 
 async def async_unload_entry(
-    hass: HomeAssistantType,
+    hass: HomeAssistant,
     config_entry: config_entries.ConfigEntry,
 ) -> bool:
     """Unload Lkcomu InterRAO entry"""

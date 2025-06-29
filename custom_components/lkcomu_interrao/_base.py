@@ -16,18 +16,13 @@ from typing import (
     Any,
     Callable,
     ClassVar,
-    Dict,
     Generic,
     Hashable,
     Iterable,
-    List,
     Mapping,
     Optional,
-    Set,
     SupportsInt,
     TYPE_CHECKING,
-    Tuple,
-    Type,
     TypeVar,
     Union,
 )
@@ -76,15 +71,15 @@ _LOGGER = logging.getLogger(__name__)
 
 _TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound="LkcomuInterRAOEntity")
 
-AddEntitiesCallType = Callable[[List["MESEntity"], bool], Any]
-UpdateDelegatorsDataType = Dict[str, Tuple[AddEntitiesCallType, Set[Type["MESEntity"]]]]
-EntitiesDataType = Dict[
-    Type["LkcomuInterRAOEntity"], Dict[Hashable, "LkcomuInterRAOEntity"]
+AddEntitiesCallType = Callable[[list["MESEntity"], bool], Any]
+UpdateDelegatorsDataType = dict[str, tuple[AddEntitiesCallType, set[type["MESEntity"]]]]
+EntitiesDataType = dict[
+    type["LkcomuInterRAOEntity"], dict[Hashable, "LkcomuInterRAOEntity"]
 ]
 
 
 def make_common_async_setup_entry(
-    entity_cls: Type["LkcomuInterRAOEntity"], *args: Type["LkcomuInterRAOEntity"]
+    entity_cls: type["LkcomuInterRAOEntity"], *args: type["LkcomuInterRAOEntity"]
 ):
     async def _async_setup_entry(
         hass: HomeAssistant,
@@ -118,8 +113,8 @@ async def async_register_update_delegator(
     config_entry: ConfigEntry,
     platform: str,
     async_add_entities: AddEntitiesCallType,
-    entity_cls: Type["LkcomuInterRAOEntity"],
-    *args: Type["LkcomuInterRAOEntity"],
+    entity_cls: type["LkcomuInterRAOEntity"],
+    *args: type["LkcomuInterRAOEntity"],
     update_after_complete: bool = True,
 ):
     entry_id = config_entry.entry_id
@@ -264,7 +259,7 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
         )
 
 
-class NameFormatDict(dict):
+class NameFormatdict(dict):
     def __missing__(self, key: str):
         if key.endswith("_upper") and key[:-6] in self:
             return str(self[key[:-6]]).upper()
@@ -280,7 +275,7 @@ _TAccount = TypeVar("_TAccount", bound="Account")
 
 
 SupportedServicesType = Mapping[
-    Optional[Tuple[type, SupportsInt]],
+    Optional[tuple[type, SupportsInt]],
     Mapping[str, Union[dict, Callable[[dict], dict]]],
 ]
 
@@ -304,7 +299,7 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
         return urlparse(self._account.api.BASE_URL).netloc
 
     @property
-    def device_info(self) -> Dict[str, Any]:
+    def device_info(self) -> dict[str, Any]:
         account_object = self._account
 
         device_info = {
@@ -449,8 +444,8 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
     @classmethod
     @abstractmethod
     async def async_refresh_accounts(
-        cls: Type[_TLkcomuInterRAOEntity],
-        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
+        cls: type[_TLkcomuInterRAOEntity],
+        entities: dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,

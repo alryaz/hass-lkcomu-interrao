@@ -10,7 +10,6 @@ from enum import IntEnum
 from typing import (
     Any,
     ClassVar,
-    Dict,
     Final,
     Hashable,
     Mapping,
@@ -320,7 +319,7 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
+        entities: dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
@@ -539,7 +538,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: Dict[Hashable, Optional[_TLkcomuInterRAOEntity]],
+        entities: dict[Hashable, Optional[_TLkcomuInterRAOEntity]],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
@@ -893,7 +892,7 @@ class LkcomuLastInvoice(
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
+        entities: dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,

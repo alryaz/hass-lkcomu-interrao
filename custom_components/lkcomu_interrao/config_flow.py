@@ -2,13 +2,11 @@
 
 import asyncio
 import logging
-from collections import OrderedDict
 from datetime import timedelta
 from functools import partial
 from typing import (
     Any,
     ClassVar,
-    Dict,
     Mapping,
     Optional,
     TYPE_CHECKING,
@@ -67,7 +65,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
-    CACHED_API_TYPE_NAMES: ClassVar[Optional[Dict[str, Any]]] = {}
+    CACHED_API_TYPE_NAMES: ClassVar[Optional[dict[str, Any]]] = {}
 
     def __init__(self):
         """Instantiate config flow."""
@@ -92,7 +90,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def make_entry_title(
-        api_cls: Union[Type["BaseEnergosbytAPI"], "BaseEnergosbytAPI"], username: str
+        api_cls: Union[type["BaseEnergosbytAPI"], "BaseEnergosbytAPI"], username: str
     ) -> str:
         from urllib.parse import urlparse
 
@@ -101,7 +99,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
     # Initial step for user interaction
     async def async_step_user(
         self, user_input: Optional[ConfigType] = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Handle a flow start."""
         if self.schema_user is None:
             try:
@@ -121,14 +119,18 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
                 except FakeUserAgentError:
                     default_user_agent = DEFAULT_USER_AGENT
 
-            schema_user = OrderedDict()
-            schema_user[vol.Required(CONF_TYPE, default=API_TYPE_DEFAULT)] = vol.In(
-                API_TYPE_NAMES
+            self.schema_user = vol.Schema(
+                {
+                    vol.Required(CONF_TYPE, default=API_TYPE_DEFAULT): vol.In(
+                        API_TYPE_NAMES
+                    ),
+                    vol.Required(CONF_USERNAME): cv.string,
+                    vol.Required(CONF_PASSWORD): cv.string,
+                    vol.Optional(
+                        CONF_USER_AGENT, default=default_user_agent
+                    ): cv.string,
+                }
             )
-            schema_user[vol.Required(CONF_USERNAME)] = str
-            schema_user[vol.Required(CONF_PASSWORD)] = str
-            schema_user[vol.Optional(CONF_USER_AGENT, default=default_user_agent)] = str
-            self.schema_user = vol.Schema(schema_user)
 
         if user_input is None:
             return self.async_show_form(step_id="user", data_schema=self.schema_user)
@@ -178,7 +180,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_select(
         self, user_input: Optional[ConfigType] = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         accounts, current_config = self._accounts, self._current_config
         if user_input is None:
             if accounts is None or current_config is None:
@@ -218,7 +220,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_import(
         self, user_input: Optional[ConfigType] = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if user_input is None:
             return self.async_abort(reason="unknown_error")
 

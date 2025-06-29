@@ -1,14 +1,11 @@
 import asyncio
 import datetime
 import re
-from datetime import timedelta
 from typing import (
     Any,
     Callable,
     Coroutine,
-    Dict,
     Optional,
-    Set,
     TYPE_CHECKING,
     Type,
     TypeVar,
@@ -60,7 +57,7 @@ def _find_existing_entry(
             return config_entry
 
 
-def import_api_cls(type_: str) -> Type["BaseEnergosbytAPI"]:
+def import_api_cls(type_: str) -> type["BaseEnergosbytAPI"]:
     return __import__(
         "inter_rao_energosbyt.api." + type_, globals(), locals(), ("API",)
     ).API
@@ -76,7 +73,7 @@ def mask_username(username: str):
 
 _RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w.]+\.ico)"')
 
-ICONS_FOR_PROVIDERS: Dict[str, Optional[Union[asyncio.Future, str]]] = {}
+ICONS_FOR_PROVIDERS: dict[str, Optional[Union[asyncio.Future, str]]] = {}
 
 
 def _make_code_search_index(code):
@@ -85,7 +82,7 @@ def _make_code_search_index(code):
 
 async def async_get_icons_for_providers(
     api: "BaseEnergosbytAPI", provider_types: Set[int]
-) -> Dict[str, str]:
+) -> dict[str, str]:
     session = api._session
     base_url = api.BASE_URL
     icons = {}

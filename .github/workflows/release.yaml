@@ -1,0 +1,21 @@
+name: Handle version bump
+
+on:
+  push:
+    paths:
+      - "custom_components/*/manifest.json"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  call-auto-release:
+    uses: alryaz/various-common-code/.github/workflows/auto-release-upload.yml@main
+    secrets: inherit
+    with:
+      dry-run: ${{ inputs.dry-run }}

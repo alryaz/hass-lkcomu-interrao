@@ -6,6 +6,5 @@
   "country": [
     "RU"
   ],
-  "homeassistant": "2025.5.0",
-  "iot_class": "Cloud Polling"
+  "homeassistant": "2025.5.0"
 }

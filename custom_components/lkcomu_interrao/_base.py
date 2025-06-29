@@ -20,7 +20,6 @@ from typing import (
     Hashable,
     Iterable,
     Mapping,
-    Optional,
     SupportsInt,
     TYPE_CHECKING,
     TypeVar,
@@ -259,23 +258,12 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
         )
 
 
-class NameFormatdict(dict):
-    def __missing__(self, key: str):
-        if key.endswith("_upper") and key[:-6] in self:
-            return str(self[key[:-6]]).upper()
-        if key.endswith("_cap") and key[:-4] in self:
-            return str(self[key[:-4]]).capitalize()
-        if key.endswith("_title") and key[:-6] in self:
-            return str(self[key[:-6]]).title()
-        return "{{" + str(key) + "}}"
-
-
 _TData = TypeVar("_TData")
 _TAccount = TypeVar("_TAccount", bound="Account")
 
 
 SupportedServicesType = Mapping[
-    Optional[tuple[type, SupportsInt]],
+    tuple[type, SupportsInt] | None,
     Mapping[str, Union[dict, Callable[[dict], dict]]],
 ]
 
@@ -323,7 +311,7 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
     #################################################################################
 
     @property
-    def account_provider_code(self) -> Optional[str]:
+    def account_provider_code(self) -> str | None:
         try:
             return ProviderType(self._account.provider_type).name.lower()
         except (ValueError, TypeError):
@@ -374,9 +362,9 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
         _LOGGER.info(self.log_prefix + "Removing from HomeAssistant")
         self.updater_stop()
 
-        registry_entry: Optional["RegistryEntry"] = self.registry_entry
+        registry_entry = self.registry_entry
         if registry_entry:
-            entry_id: Optional[str] = registry_entry.config_entry_id
+            entry_id = registry_entry.config_entry_id
             if entry_id:
                 data_entities: EntitiesDataType = self.hass.data[DATA_ENTITIES][
                     entry_id
@@ -449,7 +437,7 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
-    ) -> Optional[Iterable[_TLkcomuInterRAOEntity]]:
+    ) -> Iterable[_TLkcomuInterRAOEntity] | None:
         raise NotImplementedError
 
     #################################################################################
@@ -466,7 +454,7 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
 
     @property
     @abstractmethod
-    def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
+    def sensor_related_attributes(self) -> Mapping[str, Any] | None:
         raise NotImplementedError
 
     @property
@@ -474,7 +462,7 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
     def unique_id(self) -> str:
         raise NotImplementedError
 
-    def register_supported_services(self, for_object: Optional[Any] = None) -> None:
+    def register_supported_services(self, for_object: Any | None = None) -> None:
         for type_feature, services in self._supported_services.items():
             result, features = (
                 (True, None)

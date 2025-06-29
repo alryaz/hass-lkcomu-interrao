@@ -8,9 +8,6 @@ from typing import (
     Any,
     ClassVar,
     Mapping,
-    Optional,
-    TYPE_CHECKING,
-    Type,
     Union,
 )
 
@@ -41,9 +38,6 @@ from inter_rao_energosbyt.interfaces import (
     BaseEnergosbytAPI,
 )
 
-if TYPE_CHECKING:
-    pass
-
 _LOGGER = logging.getLogger(__name__)
 
 CONF_DISABLE_ENTITIES = "disable_entities"
@@ -65,14 +59,14 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
-    CACHED_API_TYPE_NAMES: ClassVar[Optional[dict[str, Any]]] = {}
+    CACHED_API_TYPE_NAMES: ClassVar[dict[str, Any] | None] = {}
 
     def __init__(self):
         """Instantiate config flow."""
         self._current_type = None
-        self._current_config: Optional[ConfigType] = None
+        self._current_config: ConfigType | None = None
         self._devices_info = None
-        self._accounts: Optional[Mapping[int, "Account"]] = None
+        self._accounts: Mapping[int, "Account"] | None = None
 
         self.schema_user = None
 
@@ -98,7 +92,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # Initial step for user interaction
     async def async_step_user(
-        self, user_input: Optional[ConfigType] = None
+        self, user_input: ConfigType | None = None
     ) -> dict[str, Any]:
         """Handle a flow start."""
         if self.schema_user is None:
@@ -179,7 +173,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
         return await self.async_step_select()
 
     async def async_step_select(
-        self, user_input: Optional[ConfigType] = None
+        self, user_input: ConfigType | None = None
     ) -> dict[str, Any]:
         accounts, current_config = self._accounts, self._current_config
         if user_input is None:
@@ -219,7 +213,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_import(
-        self, user_input: Optional[ConfigType] = None
+        self, user_input: ConfigType | None = None
     ) -> dict[str, Any]:
         if user_input is None:
             return self.async_abort(reason="unknown_error")

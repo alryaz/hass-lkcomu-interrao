@@ -4,8 +4,6 @@ from typing import (
     Hashable,
     Iterable,
     Mapping,
-    Optional,
-    Type,
     TypeVar,
 )
 
@@ -38,28 +36,28 @@ class LkcomuInterRAOLastPayment(
     config_key: ClassVar[str] = CONF_LAST_PAYMENT
 
     def __init__(
-        self, *args, last_payment: Optional[AbstractPayment] = None, **kwargs
+        self, *args, last_payment: AbstractPayment | None = None, **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
         self._last_payment = last_payment
 
-        self._entity_id: Optional[str] = f"binary_sensor." + slugify(
+        self._entity_id: str | None = f"binary_sensor." + slugify(
             f"{self.account_provider_code or 'unknown'}_{self._account.code}_last_payment"
         )
 
     @property
-    def is_on(self) -> Optional[bool]:
+    def is_on(self) -> bool | None:
         payment = self._last_payment
         if payment is None:
             return None
         return payment.is_accepted
 
     @property
-    def entity_id(self) -> Optional[str]:
+    def entity_id(self) -> str | None:
         return self._entity_id
 
     @entity_id.setter
-    def entity_id(self, value: Optional[str]) -> None:
+    def entity_id(self, value: str | None) -> None:
         self._entity_id = value
 
     #################################################################################
@@ -73,7 +71,7 @@ class LkcomuInterRAOLastPayment(
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
-    ) -> Optional[Iterable[_TLkcomuInterRAOEntity]]:
+    ) -> Iterable[_TLkcomuInterRAOEntity] | None:
         if isinstance(account, AbstractAccountWithPayments):
             entity_key = account.id
 
@@ -97,7 +95,7 @@ class LkcomuInterRAOLastPayment(
     #################################################################################
 
     @property
-    def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
+    def sensor_related_attributes(self) -> Mapping[str, Any] | None:
         payment = self._last_payment
         if payment:
             return payment_to_attrs(payment)

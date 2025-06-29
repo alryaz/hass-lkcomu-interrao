@@ -43,50 +43,8 @@ from custom_components.lkcomu_interrao._encoders import (
     payment_to_attrs,
 )
 from custom_components.lkcomu_interrao._util import with_auto_auth
-from custom_components.lkcomu_interrao.const import (
-    ATTR_ACCOUNT_CODE,
-    ATTR_ACCOUNT_ID,
-    ATTR_ADDRESS,
-    ATTR_CALL_PARAMS,
-    ATTR_CHARGED,
-    ATTR_COMMENT,
-    ATTR_DESCRIPTION,
-    ATTR_END,
-    ATTR_FULL_NAME,
-    ATTR_IGNORE_INDICATIONS,
-    ATTR_IGNORE_PERIOD,
-    ATTR_INCREMENTAL,
-    ATTR_INDICATIONS,
-    ATTR_INSTALL_DATE,
-    ATTR_LAST_INDICATIONS_DATE,
-    ATTR_LIVING_AREA,
-    ATTR_METER_CATEGORY,
-    ATTR_METER_CODE,
-    ATTR_METER_MODEL,
-    ATTR_MODEL,
-    ATTR_PREVIOUS,
-    ATTR_PROVIDER_NAME,
-    ATTR_PROVIDER_TYPE,
-    ATTR_REASON,
-    ATTR_REMAINING_DAYS,
-    ATTR_RESULT,
-    ATTR_SERVICE_NAME,
-    ATTR_SERVICE_TYPE,
-    ATTR_START,
-    ATTR_STATUS,
-    ATTR_SUBMIT_PERIOD_ACTIVE,
-    ATTR_SUBMIT_PERIOD_END,
-    ATTR_SUBMIT_PERIOD_START,
-    ATTR_SUCCESS,
-    ATTR_SUM,
-    ATTR_TOTAL_AREA,
-    CONF_ACCOUNTS,
-    CONF_LAST_INVOICE,
-    CONF_LOGOS,
-    CONF_METERS,
-    DATA_PROVIDER_LOGOS,
-    DOMAIN,
-)
+from custom_components.lkcomu_interrao.const import *
+
 from inter_rao_energosbyt.exceptions import EnergosbytException
 from inter_rao_energosbyt.interfaces import (
     AbstractAccountWithBalance,
@@ -198,18 +156,16 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         },
     }
 
-    def __init__(
-        self, *args, balance: Optional[AbstractBalance] = None, **kwargs
-    ) -> None:
+    def __init__(self, *args, balance: AbstractBalance | None = None, **kwargs) -> None:
         super().__init__(*args, *kwargs)
         self._balance = balance
 
-        self.entity_id: Optional[str] = f"sensor." + slugify(
+        self.entity_id: str | None = f"sensor." + slugify(
             f"{self.account_provider_code or 'unknown'}_{self._account.code}_account"
         )
 
     @property
-    def entity_picture(self) -> Optional[str]:
+    def entity_picture(self) -> str | None:
         if not self._account_config[CONF_LOGOS]:
             return None
 
@@ -243,7 +199,7 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         return STATE_UNKNOWN
 
     @property
-    def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
+    def sensor_related_attributes(self) -> Mapping[str, Any] | None:
         account = self._account
         service_type_value = account.service_type
         service_type = (
@@ -367,8 +323,8 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         if not isinstance(account, AbstractAccountWithPayments):
             raise ValueError("account does not support payments retrieval")
 
-        dt_start: Optional["datetime"] = call_data[ATTR_START]
-        dt_end: Optional["datetime"] = call_data[ATTR_END]
+        dt_start: datetime | None = call_data[ATTR_START]
+        dt_end: datetime | None = call_data[ATTR_END]
 
         dt_start, dt_end = process_start_end_arguments(dt_start, dt_end)
         results = []
@@ -419,8 +375,8 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         if not isinstance(account, AbstractAccountWithInvoices):
             raise ValueError("account does not support invoices retrieval")
 
-        dt_start: Optional["datetime"] = call_data[ATTR_START]
-        dt_end: Optional["datetime"] = call_data[ATTR_END]
+        dt_start: datetime | None = call_data[ATTR_START]
+        dt_end: datetime | None = call_data[ATTR_END]
 
         dt_start, dt_end = process_start_end_arguments(dt_start, dt_end)
         results = []
@@ -527,7 +483,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
         super().__init__(*args, **kwargs)
         self._meter = meter
 
-        self.entity_id: Optional[str] = f"sensor." + slugify(
+        self.entity_id: str | None = f"sensor." + slugify(
             f"{self.account_provider_code or 'unknown'}_{self._account.code}_meter_{self.code}"
         )
 
@@ -538,7 +494,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: dict[Hashable, Optional[_TLkcomuInterRAOEntity]],
+        entities: dict[Hashable, _TLkcomuInterRAOEntity | None],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
@@ -604,7 +560,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
         )
 
     @property
-    def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
+    def sensor_related_attributes(self) -> Mapping[str, Any] | None:
         met = self._meter
         attributes = {
             ATTR_METER_CODE: met.code,
@@ -861,12 +817,12 @@ class LkcomuLastInvoice(
     config_key = CONF_LAST_INVOICE
 
     def __init__(
-        self, *args, last_invoice: Optional["AbstractInvoice"] = None, **kwargs
+        self, *args, last_invoice: AbstractInvoice | None = None, **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
         self._last_invoice = last_invoice
 
-        self.entity_id: Optional[str] = "sensor." + slugify(
+        self.entity_id: str | None = "sensor." + slugify(
             f"{self.account_provider_code or 'unknown'}_{self._account.code}_last_invoice"
         )
 

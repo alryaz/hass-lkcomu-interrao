@@ -47,7 +47,7 @@ def _make_log_prefix(
 @callback
 def _find_existing_entry(
     hass: HomeAssistant, type_: str, username: str
-) -> Optional[config_entries.ConfigEntry]:
+) -> config_entries.ConfigEntry | None:
     existing_entries = hass.config_entries.async_entries(DOMAIN)
     for config_entry in existing_entries:
         if (
@@ -73,7 +73,7 @@ def mask_username(username: str):
 
 _RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w.]+\.ico)"')
 
-ICONS_FOR_PROVIDERS: dict[str, Optional[Union[asyncio.Future, str]]] = {}
+ICONS_FOR_PROVIDERS: dict[str, Union[asyncio.Future, str] | None] = {}
 
 
 def _make_code_search_index(code):

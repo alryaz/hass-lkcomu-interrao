@@ -1,7 +1,7 @@
 __all__ = ("CONFIG_ENTRY_SCHEMA",)
 
 from datetime import timedelta
-from typing import Any, Hashable, Mapping, Optional
+from typing import Any, Hashable, Mapping
 
 import voluptuous as vol
 from homeassistant.const import (
@@ -86,8 +86,8 @@ GENERIC_ACCOUNT_VALIDATOR = _make_account_validator(GENERIC_ACCOUNT_SCHEMA)
 
 def _make_provider_schema(
     provider_type: str,
-    add_to_config: Optional[Mapping[Hashable, Any]] = None,
-    add_to_accounts: Optional[Mapping[Hashable, Any]] = None,
+    add_to_config: Mapping[Hashable, Any] | None = None,
+    add_to_accounts: Mapping[Hashable, Any] | None = None,
 ):
     if provider_type not in API_TYPE_NAMES:
         raise ValueError(f"api '{provider_type}' is not defined")

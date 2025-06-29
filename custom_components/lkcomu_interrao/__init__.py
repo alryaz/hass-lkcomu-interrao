@@ -14,7 +14,7 @@ __all__ = (
 
 import asyncio
 import logging
-from typing import Any, Mapping, Optional, TYPE_CHECKING
+from typing import Any, Mapping, TYPE_CHECKING
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -36,6 +36,7 @@ from custom_components.lkcomu_interrao._util import (
     mask_username,
 )
 from custom_components.lkcomu_interrao.const import *
+
 if TYPE_CHECKING:
     from inter_rao_energosbyt.interfaces import Account, AccountID, BaseEnergosbytAPI
 
@@ -43,7 +44,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _unique_entries(value: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    pairs: dict[tuple[str, str], Optional[int]] = {}
+    pairs: dict[tuple[str, str], int | None] = {}
 
     errors = []
     for i, config in enumerate(value):

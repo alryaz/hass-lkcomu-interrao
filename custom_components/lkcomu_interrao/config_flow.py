@@ -191,7 +191,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
                                 + " ("
                                 + account.provider_name
                                 + ")"
-                                for account_id, account in self._accounts.items()
+                                for account in self._accounts.values()
                             }
                         )
                     }

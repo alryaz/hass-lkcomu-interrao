@@ -15,9 +15,9 @@ __all__ = (
 import asyncio
 import logging
 from typing import Any, Mapping, TYPE_CHECKING
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 import voluptuous as vol
 
-from homeassistant import config_entries
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import CONF_PASSWORD, CONF_TYPE, CONF_USERNAME
@@ -31,7 +31,6 @@ from custom_components.lkcomu_interrao._schema import CONFIG_ENTRY_SCHEMA
 from custom_components.lkcomu_interrao._util import (
     _find_existing_entry,
     _make_log_prefix,
-    async_get_icons_for_providers,
     import_api_cls,
     mask_username,
 )
@@ -113,7 +112,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType):
 
         existing_entry = _find_existing_entry(hass, type_, username)
         if existing_entry:
-            if existing_entry.source == config_entries.SOURCE_IMPORT:
+            if existing_entry.source == SOURCE_IMPORT:
                 yaml_config[key] = user_cfg
                 _LOGGER.debug(log_prefix + "Matching config entry exists")
             else:
@@ -130,7 +129,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType):
         hass.async_create_task(
             hass.config_entries.flow.async_init(
                 DOMAIN,
-                context={"source": config_entries.SOURCE_IMPORT},
+                context={"source": SOURCE_IMPORT},
                 data={
                     CONF_TYPE: type_,
                     CONF_USERNAME: username,
@@ -144,18 +143,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType):
     return True
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, config_entry: config_entries.ConfigEntry
-) -> bool:
-    type_ = config_entry.data[CONF_TYPE]
-    username = config_entry.data[CONF_USERNAME]
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    type_ = entry.data[CONF_TYPE]
+    username = entry.data[CONF_USERNAME]
     unique_key = (type_, username)
-    entry_id = config_entry.entry_id
+    entry_id = entry.entry_id
     log_prefix = f"[{type_}/{mask_username(username)}] "
     hass_data = hass.data
 
     # Source full configuration
-    if config_entry.source == config_entries.SOURCE_IMPORT:
+    if entry.source == SOURCE_IMPORT:
         # Source configuration from YAML
         yaml_config = hass_data.get(DATA_YAML_CONFIG)
 
@@ -171,10 +168,10 @@ async def async_setup_entry(
 
     else:
         # Source and convert configuration from input post_fields
-        all_cfg = {**config_entry.data}
+        all_cfg = {**entry.data}
 
-        if config_entry.options:
-            all_cfg.update(config_entry.options)
+        if entry.options:
+            all_cfg.update(entry.options)
 
         try:
             user_cfg = CONFIG_ENTRY_SCHEMA(all_cfg)
@@ -254,9 +251,7 @@ async def async_setup_entry(
                     f"ID: {existing_config_entry_id})"
                 )
             )
-            await hass.config_entries.async_set_disabled_by(
-                config_entry.entry_id, DOMAIN
-            )
+            await hass.config_entries.async_set_disabled_by(entry.entry_id, DOMAIN)
             return False
 
     # Create placeholders
@@ -267,42 +262,36 @@ async def async_setup_entry(
 
     # Forward entry setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(
-        config_entry,
+        entry,
         [SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN],
     )
 
     # Create options update listener
-    update_listener = config_entry.add_update_listener(async_reload_entry)
+    update_listener = entry.add_update_listener(async_reload_entry)
     hass_data.setdefault(DATA_UPDATE_LISTENERS, {})[entry_id] = update_listener
 
     _LOGGER.debug(log_prefix + ("Setup successful"))
     return True
 
 
-async def async_reload_entry(
-    hass: HomeAssistant,
-    config_entry: config_entries.ConfigEntry,
-) -> bool:
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Reload Lkcomu InterRAO entry"""
-    log_prefix = _make_log_prefix(config_entry, "setup")
+    log_prefix = _make_log_prefix(entry, "setup")
     _LOGGER.info(log_prefix + "Reloading configuration entry")
-    return await hass.config_entries.async_reload(config_entry.entry_id)
+    return await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(
-    hass: HomeAssistant,
-    config_entry: config_entries.ConfigEntry,
-) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload Lkcomu InterRAO entry"""
-    log_prefix = _make_log_prefix(config_entry, "setup")
-    entry_id = config_entry.entry_id
+    log_prefix = _make_log_prefix(entry, "setup")
+    entry_id = entry.entry_id
 
     update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS].pop(
         entry_id
     )
 
     tasks = [
-        hass.config_entries.async_forward_entry_unload(config_entry, domain)
+        hass.config_entries.async_forward_entry_unload(entry, domain)
         for domain in update_delegators.keys()
     ]
 

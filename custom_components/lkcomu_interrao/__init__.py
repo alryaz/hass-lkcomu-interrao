@@ -341,7 +341,7 @@ async def async_setup_entry(
     # Forward entry setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(
         config_entry,
-        (SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN),
+        [SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN],
     )
 
     # Create options update listener

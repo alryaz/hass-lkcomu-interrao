@@ -24,11 +24,13 @@ from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_SERVICE,
     CONF_DESCRIPTION,
-    STATE_LOCKED,
+    # STATE_LOCKED,
     STATE_OK,
     STATE_PROBLEM,
     STATE_UNKNOWN,
 )
+STATE_LOCKED = "locked"
+
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import slugify

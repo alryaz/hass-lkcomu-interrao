@@ -1,13 +1,17 @@
 """Inter RAO integration config and option flow handlers"""
-
 import asyncio
 import logging
+from collections import OrderedDict
 from datetime import timedelta
 from functools import partial
 from typing import (
     Any,
     ClassVar,
+    Dict,
     Mapping,
+    Optional,
+    TYPE_CHECKING,
+    Type,
     Union,
 )
 
@@ -38,6 +42,9 @@ from inter_rao_energosbyt.interfaces import (
     BaseEnergosbytAPI,
 )
 
+if TYPE_CHECKING:
+    pass
+
 _LOGGER = logging.getLogger(__name__)
 
 CONF_DISABLE_ENTITIES = "disable_entities"
@@ -59,14 +66,14 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
-    CACHED_API_TYPE_NAMES: ClassVar[dict[str, Any] | None] = {}
+    CACHED_API_TYPE_NAMES: ClassVar[Optional[Dict[str, Any]]] = {}
 
     def __init__(self):
         """Instantiate config flow."""
         self._current_type = None
-        self._current_config: ConfigType | None = None
+        self._current_config: Optional[ConfigType] = None
         self._devices_info = None
-        self._accounts: Mapping[int, "Account"] | None = None
+        self._accounts: Optional[Mapping[int, "Account"]] = None
 
         self.schema_user = None
 
@@ -84,16 +91,14 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def make_entry_title(
-        api_cls: Union[type["BaseEnergosbytAPI"], "BaseEnergosbytAPI"], username: str
+        api_cls: Union[Type["BaseEnergosbytAPI"], "BaseEnergosbytAPI"], username: str
     ) -> str:
         from urllib.parse import urlparse
 
         return urlparse(api_cls.BASE_URL).netloc + " (" + username + ")"
 
     # Initial step for user interaction
-    async def async_step_user(
-        self, user_input: ConfigType | None = None
-    ) -> dict[str, Any]:
+    async def async_step_user(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
         """Handle a flow start."""
         if self.schema_user is None:
             try:
@@ -113,18 +118,12 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
                 except FakeUserAgentError:
                     default_user_agent = DEFAULT_USER_AGENT
 
-            self.schema_user = vol.Schema(
-                {
-                    vol.Required(CONF_TYPE, default=API_TYPE_DEFAULT): vol.In(
-                        API_TYPE_NAMES
-                    ),
-                    vol.Required(CONF_USERNAME): cv.string,
-                    vol.Required(CONF_PASSWORD): cv.string,
-                    vol.Optional(
-                        CONF_USER_AGENT, default=default_user_agent
-                    ): cv.string,
-                }
-            )
+            schema_user = OrderedDict()
+            schema_user[vol.Required(CONF_TYPE, default=API_TYPE_DEFAULT)] = vol.In(API_TYPE_NAMES)
+            schema_user[vol.Required(CONF_USERNAME)] = str
+            schema_user[vol.Required(CONF_PASSWORD)] = str
+            schema_user[vol.Optional(CONF_USER_AGENT, default=default_user_agent)] = str
+            self.schema_user = vol.Schema(schema_user)
 
         if user_input is None:
             return self.async_show_form(step_id="user", data_schema=self.schema_user)
@@ -172,9 +171,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_select()
 
-    async def async_step_select(
-        self, user_input: ConfigType | None = None
-    ) -> dict[str, Any]:
+    async def async_step_select(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
         accounts, current_config = self._accounts, self._current_config
         if user_input is None:
             if accounts is None or current_config is None:
@@ -187,11 +184,8 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
                     {
                         vol.Optional(CONF_ACCOUNTS): cv.multi_select(
                             {
-                                account.code: account.code
-                                + " ("
-                                + account.provider_name
-                                + ")"
-                                for account in self._accounts.values()
+                                account.code: account.code + " (" + account.provider_name + ")"
+                                for account_id, account in self._accounts.items()
                             }
                         )
                     }
@@ -200,9 +194,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input[CONF_ACCOUNTS]:
             current_config[CONF_DEFAULT] = False
-            current_config[CONF_ACCOUNTS] = dict.fromkeys(
-                user_input[CONF_ACCOUNTS], True
-            )
+            current_config[CONF_ACCOUNTS] = dict.fromkeys(user_input[CONF_ACCOUNTS], True)
 
         return self.async_create_entry(
             title=self.make_entry_title(
@@ -212,9 +204,7 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
             data=_flatten(current_config),
         )
 
-    async def async_step_import(
-        self, user_input: ConfigType | None = None
-    ) -> dict[str, Any]:
+    async def async_step_import(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
         if user_input is None:
             return self.async_abort(reason="unknown_error")
 

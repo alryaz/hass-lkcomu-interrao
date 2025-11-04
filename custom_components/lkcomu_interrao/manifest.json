@@ -1,18 +1,16 @@
 {
     "domain": "lkcomu_interrao",
     "name": "Inter RAO Personal Cabinet (Energosbyt)",
-    "codeowners": [
-        "@alryaz"
-    ],
-    "config_flow": true,
-    "dependencies": [],
     "documentation": "https://github.com/alryaz/hass-lkcomu-interrao",
-    "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/alryaz/hass-lkcomu-interrao/issues",
+    "dependencies": [],
+    "version": "2025.11",
+    "codeowners": ["@alryaz"],
     "requirements": [
         "python-dateutil==2.8.1",
         "fake_useragent==0.1.11",
         "inter-rao-energosbyt-python==0.0.23"
     ],
-    "version": "2025.6.1b2"
+    "config_flow": true,
+    "iot_class": "cloud_polling"
 }

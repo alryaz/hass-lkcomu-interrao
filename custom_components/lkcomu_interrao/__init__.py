@@ -1,5 +1,4 @@
 """Energosbyt API"""
-
 __all__ = (
     "CONFIG_SCHEMA",
     "async_unload_entry",
@@ -14,36 +13,60 @@ __all__ = (
 
 import asyncio
 import logging
-from typing import Any, Mapping, TYPE_CHECKING
-from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-import voluptuous as vol
+from typing import Any, Dict, List, Mapping, Optional, TYPE_CHECKING, Tuple
 
+import voluptuous as vol
+from homeassistant import config_entries
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import CONF_PASSWORD, CONF_TYPE, CONF_USERNAME
-from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.core import HomeAssistant
 
 from custom_components.lkcomu_interrao._base import UpdateDelegatorsDataType
 from custom_components.lkcomu_interrao._schema import CONFIG_ENTRY_SCHEMA
 from custom_components.lkcomu_interrao._util import (
+    IS_IN_RUSSIA,
     _find_existing_entry,
     _make_log_prefix,
+    async_get_icons_for_providers,
     import_api_cls,
     mask_username,
 )
-from custom_components.lkcomu_interrao.const import *
+from custom_components.lkcomu_interrao.const import (
+    API_TYPE_DEFAULT,
+    API_TYPE_NAMES,
+    CONF_ACCOUNTS,
+    CONF_LAST_INVOICE,
+    CONF_METERS,
+    CONF_NAME_FORMAT,
+    CONF_USER_AGENT,
+    DATA_API_OBJECTS,
+    DATA_ENTITIES,
+    DATA_FINAL_CONFIG,
+    DATA_PROVIDER_LOGOS,
+    DATA_PROVIDER_LOGOS,
+    DATA_UPDATE_DELEGATORS,
+    DATA_UPDATE_LISTENERS,
+    DATA_YAML_CONFIG,
+    DEFAULT_NAME_FORMAT_EN_ACCOUNTS,
+    DEFAULT_NAME_FORMAT_EN_LAST_INVOICE,
+    DEFAULT_NAME_FORMAT_EN_METERS,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+)
 
 if TYPE_CHECKING:
     from inter_rao_energosbyt.interfaces import Account, AccountID, BaseEnergosbytAPI
+    from custom_components.lkcomu_interrao.sensor import LkcomuAccount
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _unique_entries(value: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    pairs: dict[tuple[str, str], int | None] = {}
+def _unique_entries(value: List[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
+    pairs: Dict[Tuple[str, str], Optional[int]] = {}
 
     errors = []
     for i, config in enumerate(value):
@@ -51,14 +74,10 @@ def _unique_entries(value: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
         if pair in pairs:
             if pairs[pair] is not None:
                 errors.append(
-                    vol.Invalid(
-                        "duplicate unique key, first encounter", path=[pairs[pair]]
-                    )
+                    vol.Invalid("duplicate unique key, first encounter", path=[pairs[pair]])
                 )
                 pairs[pair] = None
-            errors.append(
-                vol.Invalid("duplicate unique key, subsequent encounter", path=[i])
-            )
+            errors.append(vol.Invalid("duplicate unique key, subsequent encounter", path=[i]))
         else:
             pairs[pair] = i
 
@@ -74,12 +93,7 @@ CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Any(
             vol.Equal({}),
-            vol.All(
-                cv.ensure_list,
-                vol.Length(min=1),
-                [CONFIG_ENTRY_SCHEMA],
-                _unique_entries,
-            ),
+            vol.All(cv.ensure_list, vol.Length(min=1), [CONFIG_ENTRY_SCHEMA], _unique_entries),
         )
     },
     extra=vol.ALLOW_EXTRA,
@@ -108,28 +122,54 @@ async def async_setup(hass: HomeAssistant, config: ConfigType):
         key = (type_, username)
         log_prefix = f"[{type_}/{mask_username(username)}] "
 
-        _LOGGER.debug(log_prefix + "YAML configuration encountered")
+        _LOGGER.debug(
+            log_prefix
+            + (
+                "Получена конфигурация из YAML"
+                if IS_IN_RUSSIA
+                else "YAML configuration encountered"
+            )
+        )
 
         existing_entry = _find_existing_entry(hass, type_, username)
         if existing_entry:
-            if existing_entry.source == SOURCE_IMPORT:
+            if existing_entry.source == config_entries.SOURCE_IMPORT:
                 yaml_config[key] = user_cfg
-                _LOGGER.debug(log_prefix + "Matching config entry exists")
+                _LOGGER.debug(
+                    log_prefix
+                    + (
+                        "Соответствующая конфигурационная запись существует"
+                        if IS_IN_RUSSIA
+                        else "Matching config entry exists"
+                    )
+                )
             else:
                 _LOGGER.warning(
-                    log_prefix + "YAML config is overridden by another entry!"
+                    log_prefix
+                    + (
+                        "Конфигурация из YAML переопределена другой конфигурацией!"
+                        if IS_IN_RUSSIA
+                        else "YAML config is overridden by another entry!"
+                    )
                 )
             continue
 
         # Save YAML configuration
         yaml_config[key] = user_cfg
 
-        _LOGGER.warning(log_prefix + "Creating new config entry")
+        _LOGGER.warning(
+            log_prefix
+            + (
+                "Создание новой конфигурационной записи"
+                if IS_IN_RUSSIA
+                else "Creating new config entry"
+            )
+        )
 
         hass.async_create_task(
             hass.config_entries.flow.async_init(
                 DOMAIN,
-                context={"source": SOURCE_IMPORT},
+                context={"source": config_entries.SOURCE_IMPORT},
                 data={
                     CONF_TYPE: type_,
                     CONF_USERNAME: username,
@@ -138,28 +178,36 @@ async def async_setup(hass: HomeAssistant, config: ConfigType):
         )
 
     if not yaml_config:
-        _LOGGER.debug("YAML configuration not found")
+        _LOGGER.debug(
+            "Конфигурация из YAML не обнаружена" if IS_IN_RUSSIA else "YAML configuration not found"
+        )
 
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    type_ = entry.data[CONF_TYPE]
-    username = entry.data[CONF_USERNAME]
+async def async_setup_entry(
+    hass: HomeAssistant, config_entry: config_entries.ConfigEntry
+) -> bool:
+    type_ = config_entry.data[CONF_TYPE]
+    username = config_entry.data[CONF_USERNAME]
     unique_key = (type_, username)
-    entry_id = entry.entry_id
+    entry_id = config_entry.entry_id
     log_prefix = f"[{type_}/{mask_username(username)}] "
     hass_data = hass.data
 
     # Source full configuration
-    if entry.source == SOURCE_IMPORT:
+    if config_entry.source == config_entries.SOURCE_IMPORT:
         # Source configuration from YAML
         yaml_config = hass_data.get(DATA_YAML_CONFIG)
 
         if not yaml_config or unique_key not in yaml_config:
             _LOGGER.info(
                 log_prefix
-                + (f"Removing entry {entry_id} after removal from YAML configuration")
+                + (
+                    f"Удаление записи {entry_id} после удаления из конфигурации YAML"
+                    if IS_IN_RUSSIA
+                    else f"Removing entry {entry_id} after removal from YAML configuration"
+                )
             )
             hass.async_create_task(hass.config_entries.async_remove(entry_id))
             return False
@@ -168,18 +216,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     else:
         # Source and convert configuration from input post_fields
-        all_cfg = {**entry.data}
+        all_cfg = {**config_entry.data}
 
-        if entry.options:
-            all_cfg.update(entry.options)
+        if config_entry.options:
+            all_cfg.update(config_entry.options)
 
         try:
             user_cfg = CONFIG_ENTRY_SCHEMA(all_cfg)
         except vol.Invalid as e:
-            _LOGGER.error(log_prefix + "Configuration invalid" + ": " + repr(e))
+            _LOGGER.error(
+                log_prefix
+                + (
+                    "Сохранённая конфигурация повреждена"
+                    if IS_IN_RUSSIA
+                    else "Configuration invalid"
+                )
+                + ": "
+                + repr(e)
+            )
             return False
 
-    _LOGGER.info(log_prefix + "Applying configuration entry")
+    _LOGGER.info(
+        log_prefix
+        + ("Применение конфигурационной записи" if IS_IN_RUSSIA else "Applying configuration entry")
+    )
 
     from inter_rao_energosbyt.exceptions import EnergosbytException
 
@@ -189,8 +249,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error(
             log_prefix
             + (
-                "Could not find API type. This is a fatal error for the component. "
-                "Please, report it to the developer (or open an issue on GitHub)."
+                (
+                    "Невозможно найти тип API. Это фатальная ошибка для компонента. "
+                    "Пожалуйста, обратитесь к разработчику (или заявите о проблеме на GitHub)."
+                )
+                if IS_IN_RUSSIA
+                else (
+                    "Could not find API type. This is a fatal error for the component. "
+                    "Please, report it to the developer (or open an issue on GitHub)."
+                )
             )
         )
         return False
@@ -206,19 +273,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await api_object.async_authenticate()
 
             # Fetch all accounts
-            accounts: Mapping[AccountID, "Account"] = (
-                await api_object.async_update_accounts(with_related=True)
+            accounts: Mapping[AccountID, "Account"] = await api_object.async_update_accounts(
+                with_related=True
             )
 
         except EnergosbytException as e:
             err_cls = ConfigEntryNotReady
-            err_txt = "Error during authentication"
+            err_txt = "Ошибка при авторизации" if IS_IN_RUSSIA else "Error during authentication"
 
             if len(e.args) == 3:
                 error_code = e.args[1]
                 if error_code in (131, 127, 114):
                     err_cls = ConfigEntryAuthFailed
-                    err_txt = "Error authenticating"
+                    err_txt = "Ошибка авторизации" if IS_IN_RUSSIA else "Error authenticating"
 
             err_txt += ": " + repr(e)
             _LOGGER.error(log_prefix + err_txt)
@@ -230,28 +297,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if not accounts:
         # Cancel setup because no accounts provided
-        _LOGGER.warning(log_prefix + ("No accounts found"))
+        _LOGGER.warning(
+            log_prefix + ("Лицевые счета не найдены" if IS_IN_RUSSIA else "No accounts found")
+        )
         await api_object.async_close()
         return False
 
-    _LOGGER.debug(log_prefix + (f"Found {len(accounts)} accounts"))
+    _LOGGER.debug(
+        log_prefix
+        + (
+            f"Найдено {len(accounts)} лицевых счетов"
+            if IS_IN_RUSSIA
+            else f"Found {len(accounts)} accounts"
+        )
+    )
 
     profile_id = api_object.auth_session.id_profile
 
-    api_objects: dict[str, "BaseEnergosbytAPI"] = hass_data.setdefault(
-        DATA_API_OBJECTS, {}
-    )
+    api_objects: Dict[str, "BaseEnergosbytAPI"] = hass_data.setdefault(DATA_API_OBJECTS, {})
     for existing_config_entry_id, existing_api_object in api_objects.items():
         if existing_api_object.auth_session.id_profile == profile_id:
             _LOGGER.warning(
                 log_prefix
                 + (
-                    f"Same profiles retrieved by multiple configurations "
+                    f"Одинаковые профили получены несколькими конфигурациями "
+                    f"(имя пользователя другой записи: {existing_api_object.username}, "
+                    f"идентификатор {existing_config_entry_id})"
+                    if IS_IN_RUSSIA
+                    else f"Same profiles retrieved by multiple configurations "
                     f"(foreign username: {existing_api_object.username}, "
                     f"ID: {existing_config_entry_id})"
                 )
             )
-            await hass.config_entries.async_set_disabled_by(entry.entry_id, DOMAIN)
+            await hass.config_entries.async_set_disabled_by(config_entry.entry_id, DOMAIN)
             return False
 
     # Create placeholders
@@ -262,36 +340,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Forward entry setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(
-        entry,
-        [SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN],
+        config_entry,
+        (SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN),
     )
 
     # Create options update listener
-    update_listener = entry.add_update_listener(async_reload_entry)
+    update_listener = config_entry.add_update_listener(async_reload_entry)
     hass_data.setdefault(DATA_UPDATE_LISTENERS, {})[entry_id] = update_listener
 
-    _LOGGER.debug(log_prefix + ("Setup successful"))
+    _LOGGER.debug(
+        log_prefix + ("Применение конфигурации успешно" if IS_IN_RUSSIA else "Setup successful")
+    )
     return True
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_reload_entry(
+    hass: HomeAssistant,
+    config_entry: config_entries.ConfigEntry,
+) -> bool:
     """Reload Lkcomu InterRAO entry"""
-    log_prefix = _make_log_prefix(entry, "setup")
-    _LOGGER.info(log_prefix + "Reloading configuration entry")
-    return await hass.config_entries.async_reload(entry.entry_id)
-
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload Lkcomu InterRAO entry"""
-    log_prefix = _make_log_prefix(entry, "setup")
-    entry_id = entry.entry_id
-
-    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS].pop(
-        entry_id
+    log_prefix = _make_log_prefix(config_entry, "setup")
+    _LOGGER.info(
+        log_prefix
+        + ("Перезагрузка интеграции" if IS_IN_RUSSIA else "Reloading configuration entry")
     )
+    return await hass.config_entries.async_reload(config_entry.entry_id)
+
+
+async def async_unload_entry(
+    hass: HomeAssistant,
+    config_entry: config_entries.ConfigEntry,
+) -> bool:
+    """Unload Lkcomu InterRAO entry"""
+    log_prefix = _make_log_prefix(config_entry, "setup")
+    entry_id = config_entry.entry_id
+
+    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS].pop(entry_id)
 
     tasks = [
-        hass.config_entries.async_forward_entry_unload(entry, domain)
+        hass.config_entries.async_forward_entry_unload(config_entry, domain)
         for domain in update_delegators.keys()
     ]
 
@@ -304,9 +391,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         cancel_listener = hass.data[DATA_UPDATE_LISTENERS].pop(entry_id)
         cancel_listener()
 
-        _LOGGER.info(log_prefix + "Unloaded configuration entry")
+        _LOGGER.info(
+            log_prefix
+            + ("Интеграция выгружена" if IS_IN_RUSSIA else "Unloaded configuration entry")
+        )
 
     else:
-        _LOGGER.warning(log_prefix + "Failed to unload configuration entry")
+        _LOGGER.warning(
+            log_prefix
+            + (
+                "При выгрузке конфигурации произошла ошибка"
+                if IS_IN_RUSSIA
+                else "Failed to unload configuration entry"
+            )
+        )
 
     return unload_ok

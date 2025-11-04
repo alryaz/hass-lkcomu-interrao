@@ -2,7 +2,6 @@
 Sensor for Inter RAO cabinet.
 Retrieves indications regarding current state of accounts.
 """
-
 import logging
 import re
 from datetime import date, datetime
@@ -10,6 +9,7 @@ from enum import IntEnum
 from typing import (
     Any,
     ClassVar,
+    Dict,
     Final,
     Hashable,
     Mapping,
@@ -28,7 +28,10 @@ from homeassistant.const import (
     STATE_PROBLEM,
     STATE_UNKNOWN,
 )
-from homeassistant.components.lock.const import LockState
+    # STATE_LOCKED,
+STATE_LOCKED = "locked"
+STATE_UNLOCKED = "unlocked"
+
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import slugify
@@ -38,13 +41,55 @@ from custom_components.lkcomu_interrao._base import (
     SupportedServicesType,
     make_common_async_setup_entry,
 )
-from custom_components.lkcomu_interrao._encoders import (
-    invoice_to_attrs,
-    payment_to_attrs,
-)
+from custom_components.lkcomu_interrao._encoders import invoice_to_attrs, payment_to_attrs
 from custom_components.lkcomu_interrao._util import with_auto_auth
-from custom_components.lkcomu_interrao.const import *
-
+from custom_components.lkcomu_interrao.const import (
+    ATTR_ACCOUNT_CODE,
+    ATTR_ACCOUNT_ID,
+    ATTR_ADDRESS,
+    ATTR_CALL_PARAMS,
+    ATTR_CHARGED,
+    ATTR_COMMENT,
+    ATTR_DESCRIPTION,
+    ATTR_END,
+    ATTR_FULL_NAME,
+    ATTR_IGNORE_INDICATIONS,
+    ATTR_IGNORE_PERIOD,
+    ATTR_INCREMENTAL,
+    ATTR_INDICATIONS,
+    ATTR_INSTALL_DATE,
+    ATTR_LAST_INDICATIONS_DATE,
+    ATTR_LIVING_AREA,
+    ATTR_METER_CATEGORY,
+    ATTR_METER_CODE,
+    ATTR_METER_MODEL,
+    ATTR_MODEL,
+    ATTR_PREVIOUS,
+    ATTR_PROVIDER_NAME,
+    ATTR_PROVIDER_TYPE,
+    ATTR_REASON,
+    ATTR_REMAINING_DAYS,
+    ATTR_RESULT,
+    ATTR_SERVICE_NAME,
+    ATTR_SERVICE_TYPE,
+    ATTR_START,
+    ATTR_STATUS,
+    ATTR_SUBMIT_PERIOD_ACTIVE,
+    ATTR_SUBMIT_PERIOD_END,
+    ATTR_SUBMIT_PERIOD_START,
+    ATTR_SUCCESS,
+    ATTR_SUM,
+    ATTR_TOTAL_AREA,
+    CONF_ACCOUNTS,
+    CONF_LAST_INVOICE,
+    CONF_LOGOS,
+    CONF_METERS,
+    DATA_PROVIDER_LOGOS,
+    DOMAIN,
+    FORMAT_VAR_ID,
+    FORMAT_VAR_TYPE_EN,
+    FORMAT_VAR_TYPE_RU,
+)
 from inter_rao_energosbyt.exceptions import EnergosbytException
 from inter_rao_energosbyt.interfaces import (
     AbstractAccountWithBalance,
@@ -119,9 +164,7 @@ SERVICE_GET_INVOICES: Final = "get_invoices"
 _TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound=LkcomuInterRAOEntity)
 
 
-def get_supported_features(
-    from_services: SupportedServicesType, for_object: Any
-) -> int:
+def get_supported_features(from_services: SupportedServicesType, for_object: Any) -> int:
     features = 0
     for type_feature, services in from_services.items():
         if type_feature is None:
@@ -156,16 +199,16 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         },
     }
 
-    def __init__(self, *args, balance: AbstractBalance | None = None, **kwargs) -> None:
+    def __init__(self, *args, balance: Optional[AbstractBalance] = None, **kwargs) -> None:
         super().__init__(*args, *kwargs)
         self._balance = balance
 
-        self.entity_id: str | None = f"sensor." + slugify(
+        self.entity_id: Optional[str] = f"sensor." + slugify(
             f"{self.account_provider_code or 'unknown'}_{self._account.code}_account"
         )
 
     @property
-    def entity_picture(self) -> str | None:
+    def entity_picture(self) -> Optional[str]:
         if not self._account_config[CONF_LOGOS]:
             return None
 
@@ -199,7 +242,7 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         return STATE_UNKNOWN
 
     @property
-    def sensor_related_attributes(self) -> Mapping[str, Any] | None:
+    def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
         account = self._account
         service_type_value = account.service_type
         service_type = (
@@ -225,7 +268,7 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         }
 
         if account.is_locked:
-            attributes[ATTR_STATUS] = LockState.LOCKED
+            attributes[ATTR_STATUS] = STATE_LOCKED
             attributes[ATTR_REASON] = account.lock_reason
 
         else:
@@ -249,16 +292,11 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
                     for zone_id, zone_def in zones.items():
                         attrs = ("name", "description", "tariff")
                         for prefix in ("", "within_"):
-                            values = tuple(
-                                getattr(zone_def, prefix + attr) for attr in attrs
-                            )
+                            values = tuple(getattr(zone_def, prefix + attr) for attr in attrs)
                             if any(values):
                                 attributes.update(
                                     zip(
-                                        map(
-                                            lambda x: f"zone_{zone_id}_{prefix}{x}",
-                                            attrs,
-                                        ),
+                                        map(lambda x: f"zone_{zone_id}_{prefix}{x}", attrs),
                                         values,
                                     )
                                 )
@@ -268,6 +306,16 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
 
         return attributes
 
+    @property
+    def name_format_values(self) -> Mapping[str, Any]:
+        """Return the name of the sensor"""
+        account = self._account
+        return {
+            FORMAT_VAR_ID: str(account.id),
+            FORMAT_VAR_TYPE_EN: "account",
+            FORMAT_VAR_TYPE_RU: "лицевой счёт",
+        }
+
     #################################################################################
     # Functional implementation of inherent class
     #################################################################################
@@ -275,7 +323,7 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: dict[Hashable, _TLkcomuInterRAOEntity],
+        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
@@ -323,8 +371,8 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         if not isinstance(account, AbstractAccountWithPayments):
             raise ValueError("account does not support payments retrieval")
 
-        dt_start: datetime | None = call_data[ATTR_START]
-        dt_end: datetime | None = call_data[ATTR_END]
+        dt_start: Optional["datetime"] = call_data[ATTR_START]
+        dt_end: Optional["datetime"] = call_data[ATTR_END]
 
         dt_start, dt_end = process_start_end_arguments(dt_start, dt_end)
         results = []
@@ -375,8 +423,8 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account], SensorEntity):
         if not isinstance(account, AbstractAccountWithInvoices):
             raise ValueError("account does not support invoices retrieval")
 
-        dt_start: datetime | None = call_data[ATTR_START]
-        dt_end: datetime | None = call_data[ATTR_END]
+        dt_start: Optional["datetime"] = call_data[ATTR_START]
+        dt_end: Optional["datetime"] = call_data[ATTR_END]
 
         dt_start, dt_end = process_start_end_arguments(dt_start, dt_end)
         results = []
@@ -483,7 +531,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
         super().__init__(*args, **kwargs)
         self._meter = meter
 
-        self.entity_id: str | None = f"sensor." + slugify(
+        self.entity_id: Optional[str] = f"sensor." + slugify(
             f"{self.account_provider_code or 'unknown'}_{self._account.code}_meter_{self.code}"
         )
 
@@ -494,7 +542,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: dict[Hashable, _TLkcomuInterRAOEntity | None],
+        entities: Dict[Hashable, Optional[_TLkcomuInterRAOEntity]],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
@@ -555,12 +603,11 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
         meter = self._meter
         return (
             isinstance(meter, AbstractSubmittableMeter) * FEATURE_PUSH_INDICATIONS
-            | isinstance(meter, AbstractCalculatableMeter)
-            * FEATURE_CALCULATE_INDICATIONS
+            | isinstance(meter, AbstractCalculatableMeter) * FEATURE_CALCULATE_INDICATIONS
         )
 
     @property
-    def sensor_related_attributes(self) -> Mapping[str, Any] | None:
+    def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
         met = self._meter
         attributes = {
             ATTR_METER_CODE: met.code,
@@ -624,6 +671,15 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
 
         return attributes
 
+    @property
+    def name_format_values(self) -> Mapping[str, Any]:
+        meter = self._meter
+        return {
+            FORMAT_VAR_ID: meter.id or "<unknown>",
+            FORMAT_VAR_TYPE_EN: "meter",
+            FORMAT_VAR_TYPE_RU: "счётчик",
+        }
+
     #################################################################################
     # Additional functionality
     #################################################################################
@@ -665,9 +721,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
 
         hass.bus.async_fire(event_type=event_id, event_data=event_data)
 
-    def _get_real_indications(
-        self, call_data: Mapping
-    ) -> Mapping[str, Union[int, float]]:
+    def _get_real_indications(self, call_data: Mapping) -> Mapping[str, Union[int, float]]:
         indications: Mapping[str, Union[int, float]] = call_data[ATTR_INDICATIONS]
         meter_zones = self._meter.zones
 
@@ -706,9 +760,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
         meter_code = meter.code
 
         if not isinstance(meter, AbstractSubmittableMeter):
-            raise Exception(
-                "Meter '%s' does not support indications submission" % (meter_code,)
-            )
+            raise Exception("Meter '%s' does not support indications submission" % (meter_code,))
 
         else:
             event_data = {}
@@ -761,9 +813,7 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
         _LOGGER.info(self.log_prefix + "Begin handling indications calculation")
 
         if not isinstance(meter, AbstractCalculatableMeter):
-            raise Exception(
-                "Meter '%s' does not support indications calculation" % (meter_code,)
-            )
+            raise Exception("Meter '%s' does not support indications calculation" % (meter_code,))
 
         event_data = {ATTR_CHARGED: None, ATTR_SUCCESS: False}
 
@@ -807,22 +857,18 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters], SensorEntity)
             _LOGGER.info(self.log_prefix + "End handling indications calculation")
 
 
-class LkcomuLastInvoice(
-    LkcomuInterRAOEntity[AbstractAccountWithInvoices], SensorEntity
-):
+class LkcomuLastInvoice(LkcomuInterRAOEntity[AbstractAccountWithInvoices], SensorEntity):
     _attr_unit_of_measurement = "руб."
     _attr_icon = "mdi:receipt"
     _attr_device_class = SensorDeviceClass.MONETARY
 
     config_key = CONF_LAST_INVOICE
 
-    def __init__(
-        self, *args, last_invoice: AbstractInvoice | None = None, **kwargs
-    ) -> None:
+    def __init__(self, *args, last_invoice: Optional["AbstractInvoice"] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._last_invoice = last_invoice
 
-        self.entity_id: str | None = "sensor." + slugify(
+        self.entity_id: Optional[str] = "sensor." + slugify(
             f"{self.account_provider_code or 'unknown'}_{self._account.code}_last_invoice"
         )
 
@@ -845,10 +891,19 @@ class LkcomuLastInvoice(
         if invoice:
             return invoice_to_attrs(invoice)
 
+    @property
+    def name_format_values(self) -> Mapping[str, Any]:
+        invoice = self._last_invoice
+        return {
+            FORMAT_VAR_ID: invoice.id if invoice else "<?>",
+            FORMAT_VAR_TYPE_EN: "last invoice",
+            FORMAT_VAR_TYPE_RU: "последняя квитанция",
+        }
+
     @classmethod
     async def async_refresh_accounts(
         cls,
-        entities: dict[Hashable, _TLkcomuInterRAOEntity],
+        entities: Dict[Hashable, _TLkcomuInterRAOEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,

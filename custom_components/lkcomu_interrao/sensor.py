@@ -29,6 +29,8 @@ from homeassistant.const import (
     STATE_PROBLEM,
     STATE_UNKNOWN,
 )
+STATE_LOCKED = "locked"
+
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import slugify

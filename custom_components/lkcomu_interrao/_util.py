@@ -1,11 +1,14 @@
 import asyncio
 import datetime
 import re
+from datetime import timedelta
 from typing import (
     Any,
     Callable,
     Coroutine,
+    Dict,
     Optional,
+    Set,
     TYPE_CHECKING,
     Type,
     TypeVar,
@@ -47,20 +50,15 @@ def _make_log_prefix(
 @callback
 def _find_existing_entry(
     hass: HomeAssistant, type_: str, username: str
-) -> config_entries.ConfigEntry | None:
+) -> Optional[config_entries.ConfigEntry]:
     existing_entries = hass.config_entries.async_entries(DOMAIN)
     for config_entry in existing_entries:
-        if (
-            config_entry.data[CONF_TYPE] == type_
-            and config_entry.data[CONF_USERNAME] == username
-        ):
+        if config_entry.data[CONF_TYPE] == type_ and config_entry.data[CONF_USERNAME] == username:
             return config_entry
 
 
-def import_api_cls(type_: str) -> type["BaseEnergosbytAPI"]:
-    return __import__(
-        "inter_rao_energosbyt.api." + type_, globals(), locals(), ("API",)
-    ).API
+def import_api_cls(type_: str) -> Type["BaseEnergosbytAPI"]:
+    return __import__("inter_rao_energosbyt.api." + type_, globals(), locals(), ("API",)).API
 
 
 _RE_USERNAME_MASK = re.compile(r"^(\W*)(.).*(.)$")
@@ -73,7 +71,7 @@ def mask_username(username: str):
 
 _RE_FAVICON = re.compile(r'["\']?REACT_APP_FAVICON["\']?\s*:\s*"([\w.]+\.ico)"')
 
-ICONS_FOR_PROVIDERS: dict[str, Union[asyncio.Future, str] | None] = {}
+ICONS_FOR_PROVIDERS: Dict[str, Optional[Union[asyncio.Future, str]]] = {}
 
 
 def _make_code_search_index(code):
@@ -82,7 +80,7 @@ def _make_code_search_index(code):
 
 async def async_get_icons_for_providers(
     api: "BaseEnergosbytAPI", provider_types: Set[int]
-) -> dict[str, str]:
+) -> Dict[str, str]:
     session = api._session
     base_url = api.BASE_URL
     icons = {}
@@ -124,10 +122,7 @@ async def async_get_icons_for_providers(
                 icons[code] = base_url + "/" + manifest[key]
 
     # Diversion for ProviderType.TKO
-    if (
-        ProviderType.TKO.name.lower() not in icons
-        and ProviderType.MES.name.lower() in icons
-    ):
+    if ProviderType.TKO.name.lower() not in icons and ProviderType.MES.name.lower() in icons:
         icons[ProviderType.TKO.name.lower()] = icons[ProviderType.MES.name.lower()]
 
     if "main.js" in manifest:
@@ -146,15 +141,13 @@ async def async_get_icons_for_providers(
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
 
 # Kaliningrad is excluded as it is not supported
+IS_IN_RUSSIA = timedelta(hours=3) <= LOCAL_TIMEZONE.utcoffset(None) <= timedelta(hours=12)
 _T = TypeVar("_T")
 _RT = TypeVar("_RT")
 
 
 async def with_auto_auth(
-    api: "BaseEnergosbytAPI",
-    async_getter: Callable[..., Coroutine[Any, Any, _RT]],
-    *args,
-    **kwargs,
+    api: "BaseEnergosbytAPI", async_getter: Callable[..., Coroutine[Any, Any, _RT]], *args, **kwargs
 ) -> _RT:
     try:
         return await async_getter(*args, **kwargs)

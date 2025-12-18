@@ -1,8 +1,8 @@
 {
     "domain": "lkcomu_interrao",
     "name": "Inter RAO Personal Cabinet (Energosbyt)",
-    "config_flow": true,
     "codeowners": ["@alryaz"],
+    "config_flow": true,
     "dependencies": [],
     "documentation": "https://github.com/alryaz/hass-lkcomu-interrao",
     "iot_class": "cloud_polling",

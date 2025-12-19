@@ -90,7 +90,9 @@ _TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound="LkcomuInterRAO
 
 AddEntitiesCallType = Callable[[List["MESEntity"], bool], Any]
 UpdateDelegatorsDataType = Dict[str, Tuple[AddEntitiesCallType, Set[Type["MESEntity"]]]]
-EntitiesDataType = Dict[Type["LkcomuInterRAOEntity"], Dict[Hashable, "LkcomuInterRAOEntity"]]
+EntitiesDataType = Dict[
+    Type["LkcomuInterRAOEntity"], Dict[Hashable, "LkcomuInterRAOEntity"]
+]
 
 
 def make_common_async_setup_entry(
@@ -141,7 +143,9 @@ async def async_register_update_delegator(
 ):
     entry_id = config_entry.entry_id
 
-    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS][entry_id]
+    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS][
+        entry_id
+    ]
     update_delegators[platform] = (async_add_entities, {entity_cls, *args})
 
     if update_after_complete:
@@ -160,11 +164,11 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
 
     accounts = await with_auto_auth(api, api.async_update_accounts, with_related=False)
 
-    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS][entry_id]
+    update_delegators: UpdateDelegatorsDataType = hass.data[DATA_UPDATE_DELEGATORS][
+        entry_id
+    ]
 
-    log_prefix_base = (
-        f"[{config_entry.data[CONF_TYPE]}/{mask_username(config_entry.data[CONF_USERNAME])}]"
-    )
+    log_prefix_base = f"[{config_entry.data[CONF_TYPE]}/{mask_username(config_entry.data[CONF_USERNAME])}]"
     refresh_log_prefix = log_prefix_base + "[refresh] "
 
     _LOGGER.info(
@@ -225,7 +229,9 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
 
     for account_id, account in accounts.items():
         account_config = accounts_config.get(account.code)
-        account_log_prefix_base = refresh_log_prefix + f"[{mask_username(account.code)}]"
+        account_log_prefix_base = (
+            refresh_log_prefix + f"[{mask_username(account.code)}]"
+        )
 
         if account_config is None:
             account_config = account_default_config
@@ -237,7 +243,9 @@ async def async_refresh_api_data(hass: HomeAssistant, config_entry: ConfigEntry)
             platform_log_prefix_base = account_log_prefix_base + f"[{platform}]"
             add_update_tasks = platform_tasks.setdefault(platform, [])
             for entity_cls in entity_classes:
-                cls_log_prefix_base = platform_log_prefix_base + f"[{entity_cls.__name__}]"
+                cls_log_prefix_base = (
+                    platform_log_prefix_base + f"[{entity_cls.__name__}]"
+                )
                 if account_config[entity_cls.config_key] is False:
                     _LOGGER.debug(
                         log_prefix_base
@@ -385,7 +393,9 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
 
         device_info = {
             "name": f"№ {account_object.code}",
-            "identifiers": {(DOMAIN, f"{account_object.__class__.__name__}__{account_object.id}")},
+            "identifiers": {
+                (DOMAIN, f"{account_object.__class__.__name__}__{account_object.id}")
+            },
             "manufacturer": account_object.provider_name,
             "model": self.api_hostname,
             "sw_version": account_object.api.APP_VERSION,  # placeholder for future releases
@@ -502,7 +512,9 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
             name_format_values[FORMAT_VAR_ACCOUNT_ID] = str(self._account.id)
 
         if FORMAT_VAR_PROVIDER_CODE not in name_format_values:
-            name_format_values[FORMAT_VAR_PROVIDER_CODE] = self.account_provider_code or "unknown"
+            name_format_values[FORMAT_VAR_PROVIDER_CODE] = (
+                self.account_provider_code or "unknown"
+            )
 
         if FORMAT_VAR_PROVIDER_NAME not in name_format_values:
             name_format_values[FORMAT_VAR_PROVIDER_NAME] = self._account.provider_name
@@ -531,7 +543,9 @@ class LkcomuInterRAOEntity(Entity, Generic[_TAccount]):
         if registry_entry:
             entry_id: Optional[str] = registry_entry.config_entry_id
             if entry_id:
-                data_entities: EntitiesDataType = self.hass.data[DATA_ENTITIES][entry_id]
+                data_entities: EntitiesDataType = self.hass.data[DATA_ENTITIES][
+                    entry_id
+                ]
                 cls_entities = data_entities.get(self.__class__)
                 if cls_entities:
                     remove_indices = []

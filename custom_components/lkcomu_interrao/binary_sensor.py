@@ -1,4 +1,14 @@
-from typing import Any, ClassVar, Dict, Hashable, Iterable, Mapping, Optional, Type, TypeVar
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Hashable,
+    Iterable,
+    Mapping,
+    Optional,
+    Type,
+    TypeVar,
+)
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -27,7 +37,11 @@ from custom_components.lkcomu_interrao.const import (
     FORMAT_VAR_TYPE_EN,
     FORMAT_VAR_TYPE_RU,
 )
-from inter_rao_energosbyt.interfaces import AbstractAccountWithPayments, AbstractPayment, Account
+from inter_rao_energosbyt.interfaces import (
+    AbstractAccountWithPayments,
+    AbstractPayment,
+    Account,
+)
 
 _TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound=LkcomuInterRAOEntity)
 
@@ -37,7 +51,9 @@ class LkcomuInterRAOLastPayment(
 ):
     config_key: ClassVar[str] = CONF_LAST_PAYMENT
 
-    def __init__(self, *args, last_payment: Optional[AbstractPayment] = None, **kwargs) -> None:
+    def __init__(
+        self, *args, last_payment: Optional[AbstractPayment] = None, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._last_payment = last_payment
 
@@ -119,7 +135,9 @@ class LkcomuInterRAOLastPayment(
 
             attributes = payment_to_attrs(payment)
             self._handle_dev_presentation(
-                attributes, (ATTR_PAID_AT, ATTR_PERIOD), (ATTR_AMOUNT, ATTR_AGENT, ATTR_GROUP)
+                attributes,
+                (ATTR_PAID_AT, ATTR_PERIOD),
+                (ATTR_AMOUNT, ATTR_AGENT, ATTR_GROUP),
             )
 
         return attributes

@@ -46,7 +46,7 @@ from custom_components.lkcomu_interrao._encoders import (
     invoice_to_attrs,
     payment_to_attrs,
 )
-from custom_components.lkcomu_interrao._util import with_auto_auth
+from custom_components.lkcomu_interrao._util import mask_username, with_auto_auth
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
@@ -599,7 +599,15 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
     ):
         new_meter_entities = []
         if isinstance(account, AbstractAccountWithMeters):
-            meters = await account.async_get_meters()
+            try:
+                meters = await account.async_get_meters()
+            except ValueError as exc:
+                _LOGGER.warning(
+                    "[%s][meters] Failed to load meters due to invalid date value: %r",
+                    mask_username(account.code),
+                    exc,
+                )
+                return None
 
             for meter_id, meter in meters.items():
                 entity_key = (account.id, meter_id)

@@ -2,6 +2,7 @@
 Sensor for Inter RAO cabinet.
 Retrieves indications regarding current state of accounts.
 """
+
 import logging
 import re
 from datetime import date, datetime
@@ -29,6 +30,7 @@ from homeassistant.const import (
     STATE_PROBLEM,
     STATE_UNKNOWN,
 )
+
 STATE_LOCKED = "locked"
 
 from homeassistant.helpers import config_validation as cv
@@ -40,8 +42,11 @@ from custom_components.lkcomu_interrao._base import (
     SupportedServicesType,
     make_common_async_setup_entry,
 )
-from custom_components.lkcomu_interrao._encoders import invoice_to_attrs, payment_to_attrs
-from custom_components.lkcomu_interrao._util import with_auto_auth
+from custom_components.lkcomu_interrao._encoders import (
+    invoice_to_attrs,
+    payment_to_attrs,
+)
+from custom_components.lkcomu_interrao._util import mask_username, with_auto_auth
 from custom_components.lkcomu_interrao.const import (
     ATTR_ACCOUNT_CODE,
     ATTR_ACCOUNT_ID,
@@ -132,19 +137,23 @@ INDICATIONS_SEQUENCE_SCHEMA = vol.All(
 
 CALCULATE_PUSH_INDICATIONS_SCHEMA = vol.All(
     cv.deprecated("notification"),
-    cv.make_entity_service_schema({
-        vol.Required(ATTR_INDICATIONS): vol.Any(
-            vol.All(
-                cv.string, lambda x: list(map(str.strip, x.split(","))), INDICATIONS_SEQUENCE_SCHEMA
+    cv.make_entity_service_schema(
+        {
+            vol.Required(ATTR_INDICATIONS): vol.Any(
+                vol.All(
+                    cv.string,
+                    lambda x: list(map(str.strip, x.split(","))),
+                    INDICATIONS_SEQUENCE_SCHEMA,
+                ),
+                INDICATIONS_MAPPING_SCHEMA,
+                INDICATIONS_SEQUENCE_SCHEMA,
             ),
-            INDICATIONS_MAPPING_SCHEMA,
-            INDICATIONS_SEQUENCE_SCHEMA,
-        ),
-        vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
-        vol.Optional(ATTR_IGNORE_INDICATIONS, default=False): cv.boolean,
-        vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
-        vol.Optional("notification", default=None): lambda x: x,
-    })
+            vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
+            vol.Optional(ATTR_IGNORE_INDICATIONS, default=False): cv.boolean,
+            vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
+            vol.Optional("notification", default=None): lambda x: x,
+        }
+    ),
 )
 
 SERVICE_PUSH_INDICATIONS: Final = "push_indications"
@@ -170,7 +179,9 @@ SERVICE_GET_INVOICES: Final = "get_invoices"
 _TLkcomuInterRAOEntity = TypeVar("_TLkcomuInterRAOEntity", bound=LkcomuInterRAOEntity)
 
 
-def get_supported_features(from_services: SupportedServicesType, for_object: Any) -> int:
+def get_supported_features(
+    from_services: SupportedServicesType, for_object: Any
+) -> int:
     features = 0
     for type_feature, services in from_services.items():
         if type_feature is None:
@@ -201,7 +212,9 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account]):
         },
     }
 
-    def __init__(self, *args, balance: Optional[AbstractBalance] = None, **kwargs) -> None:
+    def __init__(
+        self, *args, balance: Optional[AbstractBalance] = None, **kwargs
+    ) -> None:
         super().__init__(*args, *kwargs)
         self._balance = balance
 
@@ -312,11 +325,16 @@ class LkcomuAccount(LkcomuInterRAOEntity[Account]):
                     for zone_id, zone_def in zones.items():
                         attrs = ("name", "description", "tariff")
                         for prefix in ("", "within_"):
-                            values = tuple(getattr(zone_def, prefix + attr) for attr in attrs)
+                            values = tuple(
+                                getattr(zone_def, prefix + attr) for attr in attrs
+                            )
                             if any(values):
                                 attributes.update(
                                     zip(
-                                        map(lambda x: f"zone_{zone_id}_{prefix}{x}", attrs),
+                                        map(
+                                            lambda x: f"zone_{zone_id}_{prefix}{x}",
+                                            attrs,
+                                        ),
                                         values,
                                     )
                                 )
@@ -581,7 +599,15 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
     ):
         new_meter_entities = []
         if isinstance(account, AbstractAccountWithMeters):
-            meters = await account.async_get_meters()
+            try:
+                meters = await account.async_get_meters()
+            except ValueError as exc:
+                _LOGGER.warning(
+                    "[%s][meters] Failed to load meters due to invalid date value: %r",
+                    mask_username(account.code),
+                    exc,
+                )
+                return None
 
             for meter_id, meter in meters.items():
                 entity_key = (account.id, meter_id)
@@ -642,8 +668,9 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
     def supported_features(self) -> int:
         meter = self._meter
         return (
-                isinstance(meter, AbstractSubmittableMeter) * FEATURE_PUSH_INDICATIONS
-                | isinstance(meter, AbstractCalculatableMeter) * FEATURE_CALCULATE_INDICATIONS
+            isinstance(meter, AbstractSubmittableMeter) * FEATURE_PUSH_INDICATIONS
+            | isinstance(meter, AbstractCalculatableMeter)
+            * FEATURE_CALCULATE_INDICATIONS
         )
 
     @property
@@ -736,7 +763,11 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
     #################################################################################
 
     def _fire_callback_event(
-        self, call_data: Mapping[str, Any], event_data: Mapping[str, Any], event_id: str, title: str
+        self,
+        call_data: Mapping[str, Any],
+        event_data: Mapping[str, Any],
+        event_id: str,
+        title: str,
     ):
         meter = self._meter
         hass = self.hass
@@ -770,7 +801,9 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
 
         hass.bus.async_fire(event_type=event_id, event_data=event_data)
 
-    def _get_real_indications(self, call_data: Mapping) -> Mapping[str, Union[int, float]]:
+    def _get_real_indications(
+        self, call_data: Mapping
+    ) -> Mapping[str, Union[int, float]]:
         indications: Mapping[str, Union[int, float]] = call_data[ATTR_INDICATIONS]
         meter_zones = self._meter.zones
 
@@ -781,12 +814,12 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
         if call_data[ATTR_INCREMENTAL]:
             return {
                 zone_id: (
-                        (
-                                meter_zones[zone_id].today_indication
-                                or meter_zones[zone_id].last_indication
-                                or 0
-                        )
-                        + new_value
+                    (
+                        meter_zones[zone_id].today_indication
+                        or meter_zones[zone_id].last_indication
+                        or 0
+                    )
+                    + new_value
                 )
                 for zone_id, new_value in indications.items()
             }
@@ -809,7 +842,9 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
         meter_code = meter.code
 
         if not isinstance(meter, AbstractSubmittableMeter):
-            raise Exception("Meter '%s' does not support indications submission" % (meter_code,))
+            raise Exception(
+                "Meter '%s' does not support indications submission" % (meter_code,)
+            )
 
         else:
             event_data = {}
@@ -862,7 +897,9 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
         _LOGGER.info(self.log_prefix + "Begin handling indications calculation")
 
         if not isinstance(meter, AbstractCalculatableMeter):
-            raise Exception("Meter '%s' does not support indications calculation" % (meter_code,))
+            raise Exception(
+                "Meter '%s' does not support indications calculation" % (meter_code,)
+            )
 
         event_data = {ATTR_CHARGED: None, ATTR_SUCCESS: False}
 
@@ -909,7 +946,9 @@ class LkcomuMeter(LkcomuInterRAOEntity[AbstractAccountWithMeters]):
 class LkcomuLastInvoice(LkcomuInterRAOEntity[AbstractAccountWithInvoices]):
     config_key = CONF_LAST_INVOICE
 
-    def __init__(self, *args, last_invoice: Optional["AbstractInvoice"] = None, **kwargs) -> None:
+    def __init__(
+        self, *args, last_invoice: Optional["AbstractInvoice"] = None, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._last_invoice = last_invoice
 

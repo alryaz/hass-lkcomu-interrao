@@ -1,4 +1,5 @@
 """Constants for lkcomu_interrao integration"""
+
 from typing import Final
 
 DOMAIN: Final = "lkcomu_interrao"
@@ -81,15 +82,31 @@ DATA_UPDATE_DELEGATORS: Final = DOMAIN + "_update_delegators"
 DATA_UPDATE_LISTENERS: Final = DOMAIN + "_update_listeners"
 DATA_YAML_CONFIG: Final = DOMAIN + "_yaml_config"
 
-DEFAULT_NAME_FORMAT_EN_ACCOUNTS: Final = "{provider_code_upper} {account_code} {type_en_cap}"
-DEFAULT_NAME_FORMAT_EN_METERS: Final = "{provider_code_upper} {account_code} {type_en_cap} {code}"
-DEFAULT_NAME_FORMAT_EN_LAST_INVOICE: Final = "{provider_code_upper} {account_code} {type_en_cap}"
-DEFAULT_NAME_FORMAT_EN_LAST_PAYMENT: Final = "{provider_code_upper} {account_code} {type_en_cap}"
+DEFAULT_NAME_FORMAT_EN_ACCOUNTS: Final = (
+    "{provider_code_upper} {account_code} {type_en_cap}"
+)
+DEFAULT_NAME_FORMAT_EN_METERS: Final = (
+    "{provider_code_upper} {account_code} {type_en_cap} {code}"
+)
+DEFAULT_NAME_FORMAT_EN_LAST_INVOICE: Final = (
+    "{provider_code_upper} {account_code} {type_en_cap}"
+)
+DEFAULT_NAME_FORMAT_EN_LAST_PAYMENT: Final = (
+    "{provider_code_upper} {account_code} {type_en_cap}"
+)
 
-DEFAULT_NAME_FORMAT_RU_ACCOUNTS: Final = "{provider_code_upper} {account_code} {type_ru_cap}"
-DEFAULT_NAME_FORMAT_RU_METERS: Final = "{provider_code_upper} {account_code} {type_ru_cap} {code}"
-DEFAULT_NAME_FORMAT_RU_LAST_INVOICE: Final = "{provider_code_upper} {account_code} {type_ru_cap}"
-DEFAULT_NAME_FORMAT_RU_LAST_PAYMENT: Final = "{provider_code_upper} {account_code} {type_ru_cap}"
+DEFAULT_NAME_FORMAT_RU_ACCOUNTS: Final = (
+    "{provider_code_upper} {account_code} {type_ru_cap}"
+)
+DEFAULT_NAME_FORMAT_RU_METERS: Final = (
+    "{provider_code_upper} {account_code} {type_ru_cap} {code}"
+)
+DEFAULT_NAME_FORMAT_RU_LAST_INVOICE: Final = (
+    "{provider_code_upper} {account_code} {type_ru_cap}"
+)
+DEFAULT_NAME_FORMAT_RU_LAST_PAYMENT: Final = (
+    "{provider_code_upper} {account_code} {type_ru_cap}"
+)
 
 DEFAULT_MAX_INDICATIONS: Final = 3
 DEFAULT_SCAN_INTERVAL: Final = 60 * 60  # 1 hour

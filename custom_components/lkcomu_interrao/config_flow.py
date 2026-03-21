@@ -1,4 +1,5 @@
 """Inter RAO integration config and option flow handlers"""
+
 import asyncio
 import logging
 from collections import OrderedDict
@@ -109,7 +110,9 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
         return urlparse(api_cls.BASE_URL).netloc + " (" + username + ")"
 
     # Initial step for user interaction
-    async def async_step_user(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
+    async def async_step_user(
+        self, user_input: Optional[ConfigType] = None
+    ) -> Dict[str, Any]:
         """Handle a flow start."""
         if self.schema_user is None:
             try:
@@ -130,7 +133,9 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
                     default_user_agent = DEFAULT_USER_AGENT
 
             schema_user = OrderedDict()
-            schema_user[vol.Required(CONF_TYPE, default=API_TYPE_DEFAULT)] = vol.In(API_TYPE_NAMES)
+            schema_user[vol.Required(CONF_TYPE, default=API_TYPE_DEFAULT)] = vol.In(
+                API_TYPE_NAMES
+            )
             schema_user[vol.Required(CONF_USERNAME)] = str
             schema_user[vol.Required(CONF_PASSWORD)] = str
             schema_user[vol.Optional(CONF_USER_AGENT, default=default_user_agent)] = str
@@ -182,7 +187,9 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_select()
 
-    async def async_step_select(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
+    async def async_step_select(
+        self, user_input: Optional[ConfigType] = None
+    ) -> Dict[str, Any]:
         accounts, current_config = self._accounts, self._current_config
         if user_input is None:
             if accounts is None or current_config is None:
@@ -195,7 +202,10 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
                     {
                         vol.Optional(CONF_ACCOUNTS): cv.multi_select(
                             {
-                                account.code: account.code + " (" + account.provider_name + ")"
+                                account.code: account.code
+                                + " ("
+                                + account.provider_name
+                                + ")"
                                 for account_id, account in self._accounts.items()
                             }
                         )
@@ -205,7 +215,9 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input[CONF_ACCOUNTS]:
             current_config[CONF_DEFAULT] = False
-            current_config[CONF_ACCOUNTS] = dict.fromkeys(user_input[CONF_ACCOUNTS], True)
+            current_config[CONF_ACCOUNTS] = dict.fromkeys(
+                user_input[CONF_ACCOUNTS], True
+            )
 
         return self.async_create_entry(
             title=self.make_entry_title(
@@ -215,7 +227,9 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
             data=_flatten(current_config),
         )
 
-    async def async_step_import(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
+    async def async_step_import(
+        self, user_input: Optional[ConfigType] = None
+    ) -> Dict[str, Any]:
         if user_input is None:
             return self.async_abort(reason="unknown_error")
 
@@ -253,9 +267,13 @@ class InterRAOOptionsFlow(OptionsFlow):
         self.config_codes: Optional[Dict[str, List[str]]] = None
 
     async def async_fetch_config_codes(self):
-        api: "BaseEnergosbytAPI" = self.hass.data[DATA_API_OBJECTS][self.config_entry.entry_id]
+        api: "BaseEnergosbytAPI" = self.hass.data[DATA_API_OBJECTS][
+            self.config_entry.entry_id
+        ]
         accounts = await api.async_update_accounts(with_related=True)
-        account_codes = {account.code for account in accounts.values() if account.code is not None}
+        account_codes = {
+            account.code for account in accounts.values() if account.code is not None
+        }
 
         aws = (
             account.async_get_meters()
@@ -263,7 +281,9 @@ class InterRAOOptionsFlow(OptionsFlow):
             if isinstance(account, AbstractAccountWithMeters)
         )
 
-        meters_maps: Iterable[Mapping[int, "AbstractMeter"]] = await asyncio.gather(*aws)
+        meters_maps: Iterable[Mapping[int, "AbstractMeter"]] = await asyncio.gather(
+            *aws
+        )
         meter_codes = set()
 
         for meters_map in meters_maps:
@@ -323,7 +343,9 @@ class InterRAOOptionsFlow(OptionsFlow):
 
         # Entity filtering
         try:
-            option_entities = ENTITY_CONF_VALIDATORS[CONF_ENTITIES](all_cfg.get(CONF_ENTITIES, {}))
+            option_entities = ENTITY_CONF_VALIDATORS[CONF_ENTITIES](
+                all_cfg.get(CONF_ENTITIES, {})
+            )
         except vol.Invalid:
             option_entities = ENTITY_CONF_VALIDATORS[CONF_ENTITIES]({})
 
@@ -353,7 +375,9 @@ class InterRAOOptionsFlow(OptionsFlow):
                 # Validate text for text fields
                 validator = cv.string
 
-                if default_value is not vol.UNDEFINED and isinstance(default_value, list):
+                if default_value is not vol.UNDEFINED and isinstance(
+                    default_value, list
+                ):
                     default_value = ",".join(default_value)
             else:
                 # Validate options for multi-select fields
@@ -398,9 +422,9 @@ class InterRAOOptionsFlow(OptionsFlow):
                 "hours": default_value % (60 * 60 * 24) // (60 * 60),
             }
 
-            schema_dict[
-                vol.Optional(scan_interval_key, default=default_value)
-            ] = cv.positive_time_period_dict
+            schema_dict[vol.Optional(scan_interval_key, default=default_value)] = (
+                cv.positive_time_period_dict
+            )
 
         # Name formats
         try:
@@ -417,21 +441,29 @@ class InterRAOOptionsFlow(OptionsFlow):
             if name_format_value is None:
                 name_format_value = option_name_format[config_key_][CONF_DEFAULT]
 
-            schema_dict[vol.Optional(name_format_key, default=name_format_value)] = cv.string
+            schema_dict[vol.Optional(name_format_key, default=name_format_value)] = (
+                cv.string
+            )
 
         for config_key in ENTITY_CODES_VALIDATORS.keys():
             await _add_filter(config_key)
             await _add_scan_interval(config_key)
             await _add_name_format(config_key)
 
-        schema_dict[vol.Optional(CONF_USE_TEXT_FIELDS, default=self.use_text_fields)] = cv.boolean
+        schema_dict[
+            vol.Optional(CONF_USE_TEXT_FIELDS, default=self.use_text_fields)
+        ] = cv.boolean
 
         default_user_agent = all_cfg.get(CONF_USER_AGENT) or DEFAULT_USER_AGENT
-        schema_dict[vol.Optional(CONF_USER_AGENT, default=default_user_agent)] = cv.string
+        schema_dict[vol.Optional(CONF_USER_AGENT, default=default_user_agent)] = (
+            cv.string
+        )
 
         return schema_dict
 
-    async def async_step_init(self, user_input: Optional[ConfigType] = None) -> Dict[str, Any]:
+    async def async_step_init(
+        self, user_input: Optional[ConfigType] = None
+    ) -> Dict[str, Any]:
         if self.config_entry.source == config_entries.SOURCE_IMPORT:
             return self.async_abort(reason="yaml_not_supported")
 
@@ -471,7 +503,9 @@ class InterRAOOptionsFlow(OptionsFlow):
 
                     else:
                         entities_options = new_options.setdefault(CONF_ENTITIES, {})
-                        entities_options[config_key_] = dict.fromkeys(codes, not blacklisted)
+                        entities_options[config_key_] = dict.fromkeys(
+                            codes, not blacklisted
+                        )
                         entities_options[config_key_][CONF_DEFAULT] = blacklisted
 
                 def _save_scan_interval(config_key_: str):
@@ -479,7 +513,9 @@ class InterRAOOptionsFlow(OptionsFlow):
                     scan_interval_value = user_input.get(scan_interval_key)
 
                     if scan_interval_value is not None:
-                        scan_interval_options = new_options.setdefault(CONF_SCAN_INTERVAL, {})
+                        scan_interval_options = new_options.setdefault(
+                            CONF_SCAN_INTERVAL, {}
+                        )
                         scan_interval_options[config_key_] = int(
                             scan_interval_value.total_seconds()
                         )
@@ -489,8 +525,12 @@ class InterRAOOptionsFlow(OptionsFlow):
                     name_format_value = user_input.get(name_format_key)
 
                     if name_format_value is not None:
-                        name_format_options = new_options.setdefault(CONF_NAME_FORMAT, {})
-                        name_format_options[config_key_] = str(name_format_value).strip()
+                        name_format_options = new_options.setdefault(
+                            CONF_NAME_FORMAT, {}
+                        )
+                        name_format_options[config_key_] = str(
+                            name_format_value
+                        ).strip()
 
                 for config_key, validator in ENTITY_CODES_VALIDATORS.items():
                     _save_filter(config_key)

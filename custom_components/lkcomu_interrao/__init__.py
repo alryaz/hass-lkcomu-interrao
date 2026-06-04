@@ -282,6 +282,7 @@ async def async_setup_entry(
         username=username,
         password=user_cfg[CONF_PASSWORD],
         user_agent=user_cfg.get(CONF_USER_AGENT),
+        tfa_device_token=user_cfg.get("tfa_device_token"),
     )
 
     try:

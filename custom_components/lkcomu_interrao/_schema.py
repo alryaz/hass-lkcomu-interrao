@@ -185,6 +185,7 @@ GENERIC_CONFIG_ENTRY_SCHEMA = vol.Schema(
         vol.Optional(CONF_USER_AGENT): vol.All(
             cv.string, lambda x: " ".join(map(str.strip, x.split("\n")))
         ),
+        vol.Optional("tfa_device_token"): cv.string,
         vol.Optional(
             CONF_DEFAULT, default=lambda: GENERIC_ACCOUNT_SCHEMA({})
         ): GENERIC_ACCOUNT_VALIDATOR,

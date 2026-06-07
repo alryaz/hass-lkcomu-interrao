@@ -46,7 +46,7 @@ from custom_components.lkcomu_interrao.const import (
     DOMAIN,
 )
 from inter_rao_energosbyt.const import DEFAULT_USER_AGENT
-from inter_rao_energosbyt.exceptions import EnergosbytException
+from inter_rao_energosbyt.exceptions import EnergosbytException, TfaRequired
 from inter_rao_energosbyt.interfaces import (
     AbstractAccountWithMeters,
     AbstractMeter,
@@ -86,6 +86,8 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
         self._current_config: Optional[ConfigType] = None
         self._devices_info = None
         self._accounts: Optional[Mapping[int, "Account"]] = None
+        self._pending_api = None
+        self._pending_config = None
 
         self.schema_user = None
 
@@ -118,10 +120,8 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 # noinspection PyUnresolvedReferences
                 from fake_useragent import UserAgent, FakeUserAgentError
-
             except ImportError:
                 default_user_agent = DEFAULT_USER_AGENT
-
             else:
                 try:
                     loop = asyncio.get_event_loop()
@@ -156,35 +156,125 @@ class LkcomuInterRAOConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.error("Could not find API type: %s", type_)
             return self.async_abort(reason="api_load_error")
 
-        async with api_cls(
+        api = api_cls(
             username=username,
             password=user_input[CONF_PASSWORD],
             user_agent=user_input[CONF_USER_AGENT],
-        ) as api:
-            try:
-                await api.async_authenticate()
+            tfa_device_token=user_input.get("tfa_device_token"),
+        )
 
-            except EnergosbytException as e:
-                _LOGGER.error(f"Authentication error: {repr(e)}")
+        try:
+            await api.async_authenticate()
+
+        except TfaRequired as e:
+            try:
+                await api.async_send_tfa(e.response, kd_tfa=2)
+            except EnergosbytException as send_tfa_error:
+                await api.async_close()
+                _LOGGER.error("TFA send error: %r", send_tfa_error)
+
                 return self.async_show_form(
                     step_id="user",
                     data_schema=self.schema_user,
                     errors={"base": "authentication_error"},
                 )
 
-            try:
-                self._accounts = await api.async_update_accounts()
+            self._pending_api = api
+            self._pending_config = dict(user_input)
 
-            except EnergosbytException as e:
-                _LOGGER.error(f"Request error: {repr(e)}")
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=self.schema_user,
-                    errors={"base": "update_accounts_error"},
-                )
+            _LOGGER.warning(
+                "TFA requested: kd_result=%s method_tfa=%s has_auth_token=%s id_profile=%s",
+                e.response.kd_result,
+                getattr(e.response, "method_tfa", None),
+                bool(getattr(e.response, "vl_tfa_auth_token", None)),
+                bool(getattr(e.response, "id_profile", None)),
+            )
 
-        self._current_config = user_input
+            return self.async_show_form(
+                step_id="tfa",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required("nn_tfa_code"): str,
+                    }
+                ),
+            )
 
+        except EnergosbytException as e:
+            await api.async_close()
+            _LOGGER.error("Authentication error: %r", e)
+
+            return self.async_show_form(
+                step_id="user",
+                data_schema=self.schema_user,
+                errors={"base": "authentication_error"},
+            )
+
+        try:
+            self._accounts = await api.async_update_accounts()
+        except EnergosbytException as e:
+            await api.async_close()
+            _LOGGER.error("Request error: %r", e)
+
+            return self.async_show_form(
+                step_id="user",
+                data_schema=self.schema_user,
+                errors={"base": "update_accounts_error"},
+            )
+
+        await api.async_close()
+
+        self._current_config = dict(user_input)
+        return await self.async_step_select()
+
+    async def async_step_tfa(self, user_input=None):
+        """Handle 2FA/TFA step."""
+        if user_input is None:
+            return self.async_show_form(
+                step_id="tfa",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required("nn_tfa_code"): str,
+                    }
+                ),
+            )
+
+        api = self._pending_api
+        current_config = self._pending_config
+
+        if api is None or current_config is None:
+            return await self.async_step_user()
+
+        try:
+            await api.async_authenticate(
+                nn_tfa_code=user_input["nn_tfa_code"],
+                kd_tfa=2,
+                reset_session=False,
+            )
+
+            self._accounts = await api.async_update_accounts()
+
+            if api.tfa_device_token:
+                current_config["tfa_device_token"] = api.tfa_device_token
+
+        except EnergosbytException as e:
+            _LOGGER.error("2FA authentication error: %r", e)
+
+            return self.async_show_form(
+                step_id="tfa",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required("nn_tfa_code"): str,
+                    }
+                ),
+                errors={"base": "authentication_error"},
+            )
+
+        finally:
+            await api.async_close()
+            self._pending_api = None
+            self._pending_config = None
+
+        self._current_config = current_config
         return await self.async_step_select()
 
     async def async_step_select(

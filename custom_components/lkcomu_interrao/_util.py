@@ -157,7 +157,7 @@ _T = TypeVar("_T")
 _RT = TypeVar("_RT")
 
 
-_AUTH_LOCKS: "weakref.WeakKeyDictionary[Any, asyncio.Lock]" = weakref.WeakKeyDictionary()
+_AUTH_LOCKS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 async def with_auto_auth(

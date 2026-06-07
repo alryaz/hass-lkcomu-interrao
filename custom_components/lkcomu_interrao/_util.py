@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import re
+import weakref
 from datetime import timedelta
 from typing import (
     Any,
@@ -156,6 +157,9 @@ _T = TypeVar("_T")
 _RT = TypeVar("_RT")
 
 
+_AUTH_LOCKS: "weakref.WeakKeyDictionary[Any, asyncio.Lock]" = weakref.WeakKeyDictionary()
+
+
 async def with_auto_auth(
     api: "BaseEnergosbytAPI",
     async_getter: Callable[..., Coroutine[Any, Any, _RT]],
@@ -165,5 +169,18 @@ async def with_auto_auth(
     try:
         return await async_getter(*args, **kwargs)
     except EnergosbytException:
-        await api.async_authenticate()
-        return await async_getter(*args, **kwargs)
+        pass  # повторим попытку под блокировкой
+
+    try:
+        lock = _AUTH_LOCKS[api]
+    except KeyError:
+        lock = asyncio.Lock()
+        _AUTH_LOCKS[api] = lock
+
+    async with lock:
+        # Пока ждали блокировку — другая сущность могла уже переаутентифицироваться
+        try:
+            return await async_getter(*args, **kwargs)
+        except EnergosbytException:
+            await api.async_authenticate()
+            return await async_getter(*args, **kwargs)

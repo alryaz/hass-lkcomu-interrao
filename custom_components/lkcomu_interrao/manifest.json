@@ -10,7 +10,7 @@
     "requirements": [
         "python-dateutil==2.8.1",
         "fake_useragent==0.1.11",
-        "inter-rao-energosbyt-python @ git+https://github.com/alex-v-fraser/inter-rao-energosbyt-python@a455e04fab17beb2b76c5f6a105e1267f3ccb742"
+        "inter-rao-energosbyt-python==0.0.25"
     ],
     "version": "2025.12"
 }

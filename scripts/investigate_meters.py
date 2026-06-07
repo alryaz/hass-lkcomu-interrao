@@ -71,6 +71,7 @@ async def main():
                 post_data = request.post_data or ""
                 # Extract proxyquery value
                 import urllib.parse
+
                 try:
                     params = dict(urllib.parse.parse_qsl(post_data))
                     query = params.get("proxyquery", "?")
@@ -90,13 +91,19 @@ async def main():
         print("\nLogging in...")
         try:
             # Fill login form - try common selectors
-            login_field = page.locator("input[name='login'], input[type='email'], input[placeholder*='логин'], input[placeholder*='email'], input[id*='login'], input[id*='user']").first
+            login_field = page.locator(
+                "input[name='login'], input[type='email'], input[placeholder*='логин'], input[placeholder*='email'], input[id*='login'], input[id*='user']"
+            ).first
             await login_field.fill(USERNAME)
 
-            pass_field = page.locator("input[name='password'], input[type='password']").first
+            pass_field = page.locator(
+                "input[name='password'], input[type='password']"
+            ).first
             await pass_field.fill(PASSWORD)
 
-            submit = page.locator("button[type='submit'], input[type='submit'], button:has-text('Войти'), button:has-text('Вход')").first
+            submit = page.locator(
+                "button[type='submit'], input[type='submit'], button:has-text('Войти'), button:has-text('Вход')"
+            ).first
             await submit.click()
 
             await page.wait_for_load_state("networkidle", timeout=15000)
@@ -105,7 +112,9 @@ async def main():
         except Exception as e:
             print(f"Login automation failed: {e}")
             print("Please log in manually in the browser window.")
-            print("Press Enter here when you are logged in and can see your accounts...")
+            print(
+                "Press Enter here when you are logged in and can see your accounts..."
+            )
             await asyncio.get_event_loop().run_in_executor(None, input)
 
         # Wait for 2FA if needed
@@ -115,7 +124,9 @@ async def main():
         print("\nLooking for meters section...")
         try:
             # Common selectors for meter navigation
-            meter_link = page.locator("a:has-text('счётч'), a:has-text('показан'), a:has-text('Счетч'), nav a").first
+            meter_link = page.locator(
+                "a:has-text('счётч'), a:has-text('показан'), a:has-text('Счетч'), nav a"
+            ).first
             if await meter_link.count() > 0:
                 await meter_link.click()
                 await page.wait_for_load_state("networkidle", timeout=10000)
@@ -130,7 +141,8 @@ async def main():
 
         # Find Meters calls specifically
         meters_calls = [
-            c for c in API_CALLS
+            c
+            for c in API_CALLS
             if isinstance(c["body"], dict) and "nm_meter_num" in str(c["body"])
         ]
         sql_calls = [c for c in API_CALLS if "action=sql" in c["url"]]

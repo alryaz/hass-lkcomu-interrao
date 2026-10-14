@@ -260,7 +260,7 @@ async def async_setup_entry(
     from inter_rao_energosbyt.exceptions import EnergosbytException
 
     try:
-        api_cls = import_api_cls(type_)
+        api_cls = await hass.async_add_executor_job(import_api_cls, type_)
     except (ImportError, AttributeError):
         _LOGGER.error(
             log_prefix
